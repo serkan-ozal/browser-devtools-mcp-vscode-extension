@@ -1,0 +1,17 @@
+{
+  "git": {
+    "commit": true,
+    "push": true,
+    "tag": true,
+    "tagName": "v${version}",
+    "requireCleanWorkingDir": false,
+    "requireUpstream": false
+  },
+  "github": {
+    "release": true,
+    "releaseNotes": "echo \"Release ${version}\""
+  },
+  "npm": {
+    "publish": false
+  }
+}
