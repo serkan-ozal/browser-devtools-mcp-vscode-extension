@@ -1,0 +1,206 @@
+{
+  "name": "browser-devtools-mcp-vscode",
+  "displayName": "Browser DevTools MCP",
+  "description": "Playwright-powered browser automation and debugging for VS Code and Cursor via MCP. Enables AI assistants to navigate, screenshot, inspect accessibility, measure Web Vitals, mock APIs, and debug React components in real browsers.",
+  "version": "0.1.0",
+  "publisher": "serkan-ozal",
+  "author": {
+    "name": "Serkan Ozal",
+    "email": "serkanozal86@gmail.com",
+    "url": "https://github.com/serkan-ozal"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension"
+  },
+  "homepage": "https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension",
+  "bugs": {
+    "url": "https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension/issues"
+  },
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "icon": "images/icon.png",
+  "categories": [
+    "Testing",
+    "Debuggers",
+    "Other"
+  ],
+  "keywords": [
+    "mcp",
+    "browser",
+    "devtools",
+    "playwright",
+    "automation",
+    "testing",
+    "debugging",
+    "ai",
+    "copilot"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "browserDevtoolsMcp.openSettings",
+        "title": "Browser DevTools MCP: Open Settings",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "browserDevtoolsMcp.restartServer",
+        "title": "Browser DevTools MCP: Restart Server",
+        "icon": "$(debug-restart)"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "type": "webview",
+          "id": "browserDevtoolsMcp.settingsView",
+          "name": "Browser DevTools MCP",
+          "icon": "$(globe)",
+          "contextualTitle": "Browser DevTools MCP Settings"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Browser DevTools MCP",
+      "properties": {
+        "browserDevtoolsMcp.browser.headless": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run browser in headless mode (no visible window)"
+        },
+        "browserDevtoolsMcp.browser.persistent": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable persistent browser context (keeps cookies, localStorage, etc.)"
+        },
+        "browserDevtoolsMcp.browser.userDataDir": {
+          "type": "string",
+          "default": "",
+          "description": "Directory for persistent browser user data"
+        },
+        "browserDevtoolsMcp.browser.useSystemBrowser": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use system-installed browser instead of bundled Playwright browser"
+        },
+        "browserDevtoolsMcp.browser.executablePath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to browser executable"
+        },
+        "browserDevtoolsMcp.opentelemetry.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable OpenTelemetry instrumentation in browser"
+        },
+        "browserDevtoolsMcp.opentelemetry.serviceName": {
+          "type": "string",
+          "default": "frontend",
+          "description": "OpenTelemetry service name"
+        },
+        "browserDevtoolsMcp.opentelemetry.exporterType": {
+          "type": "string",
+          "default": "none",
+          "enum": [
+            "none",
+            "console",
+            "otlp/http"
+          ],
+          "enumDescriptions": [
+            "Disable tracing export",
+            "Export traces to console",
+            "Export traces via OTLP/HTTP"
+          ],
+          "description": "OpenTelemetry exporter type"
+        },
+        "browserDevtoolsMcp.opentelemetry.exporterUrl": {
+          "type": "string",
+          "default": "",
+          "description": "OpenTelemetry collector URL (e.g., http://localhost:4318)"
+        },
+        "browserDevtoolsMcp.opentelemetry.exporterHeaders": {
+          "type": "string",
+          "default": "",
+          "description": "OpenTelemetry HTTP headers (key=value,key=value format)"
+        },
+        "browserDevtoolsMcp.aws.region": {
+          "type": "string",
+          "default": "",
+          "description": "AWS region for Bedrock services"
+        },
+        "browserDevtoolsMcp.aws.profile": {
+          "type": "string",
+          "default": "",
+          "description": "AWS profile name for credentials"
+        },
+        "browserDevtoolsMcp.bedrock.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Amazon Bedrock for AI-powered features"
+        },
+        "browserDevtoolsMcp.bedrock.imageModelId": {
+          "type": "string",
+          "default": "",
+          "description": "Amazon Bedrock model ID for image embeddings"
+        },
+        "browserDevtoolsMcp.bedrock.textModelId": {
+          "type": "string",
+          "default": "",
+          "description": "Amazon Bedrock model ID for text embeddings"
+        },
+        "browserDevtoolsMcp.bedrock.visionModelId": {
+          "type": "string",
+          "default": "",
+          "description": "Amazon Bedrock model ID for vision tasks"
+        },
+        "browserDevtoolsMcp.figma.accessToken": {
+          "type": "string",
+          "default": "",
+          "description": "Figma API access token for design comparison features"
+        }
+      }
+    },
+    "mcpServers": {
+      "browser-devtools": {
+        "type": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "browser-devtools-mcp@latest"
+        ]
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint:check": "prettier --config .prettierrc.json --check ./src/*.ts",
+    "lint:format": "prettier --config .prettierrc.json --write ./src/*.ts",
+    "package": "vsce package",
+    "publish": "vsce publish",
+    "release:patch": "release-it --ci -VV",
+    "release:minor": "release-it minor --ci -VV",
+    "release:major": "release-it major --ci -VV"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.96.0",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.56.0",
+    "prettier": "^3.2.0",
+    "release-it": "^17.0.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "browser-devtools-mcp": "latest"
+  }
+}
