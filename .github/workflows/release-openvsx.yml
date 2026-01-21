@@ -42,6 +42,7 @@ jobs:
         run: npm run release:${{ github.event.inputs.version_scale }}
         env:
           GITHUB_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+          NODE_DEBUG: release-it:*
       - name: Publish to Open VSX Registry
         uses: HaaLeo/publish-vscode-extension@v2
         id: publishToOpenVSX
