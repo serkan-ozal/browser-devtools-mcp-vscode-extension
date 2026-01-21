@@ -92,7 +92,9 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _getHtmlForWebview(_webview: vscode.Webview): string {
+    private _getHtmlForWebview(webview: vscode.Webview): string {
+        const iconUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'images', 'icon.png'));
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -128,7 +130,9 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
         }
         
         .header-icon {
-            font-size: 24px;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
         }
         
         .header h1 {
@@ -275,7 +279,7 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
     <div class="header">
-        <span class="header-icon">🌐</span>
+        <img src="${iconUri}" alt="Browser DevTools MCP" class="header-icon">
         <div>
             <h1>Browser DevTools MCP</h1>
         </div>
