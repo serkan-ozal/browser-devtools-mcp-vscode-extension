@@ -1,5 +1,5 @@
 {
-  "name": "browser-devtools-mcp",
+  "name": "browser-devtools-mcp-vscode",
   "displayName": "Browser DevTools MCP",
   "description": "Playwright-powered browser automation and debugging for VS Code and Cursor via MCP. Enables AI assistants to navigate, screenshot, inspect accessibility, measure Web Vitals, mock APIs, and debug React components in real browsers.",
   "version": "0.1.0",
@@ -14,9 +14,9 @@
     "type": "git",
     "url": "https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension"
   },
-  "homepage": "https://github.com/serkan-ozal/browser-devtools-mcp",
+  "homepage": "https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension",
   "bugs": {
-    "url": "https://github.com/serkan-ozal/browser-devtools-mcp/issues"
+    "url": "https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension/issues"
   },
   "engines": {
     "vscode": "^1.96.0"

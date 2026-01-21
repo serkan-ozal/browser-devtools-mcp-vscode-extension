@@ -1,6 +1,6 @@
 # Browser DevTools MCP for VS Code & Cursor
 
-[![Open VSX Registry](https://img.shields.io/open-vsx/v/serkan-ozal/browser-devtools-mcp)](https://open-vsx.org/extension/serkan-ozal/browser-devtools-mcp)
+[![Open VSX Registry](https://img.shields.io/open-vsx/v/serkan-ozal/browser-devtools-mcp-vscode)](https://open-vsx.org/extension/serkan-ozal/browser-devtools-mcp-vscode)
 [![GitHub](https://img.shields.io/github/stars/serkan-ozal/browser-devtools-mcp-vscode-extension?style=social)](https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -33,20 +33,20 @@ Or install via command line:
 
 ```bash
 # VS Code
-code --install-extension serkan-ozal.browser-devtools-mcp
+code --install-extension serkan-ozal.browser-devtools-mcp-vscode
 
 # Cursor
-cursor --install-extension serkan-ozal.browser-devtools-mcp
+cursor --install-extension serkan-ozal.browser-devtools-mcp-vscode
 ```
 
 ### From VSIX
 
 ```bash
 # VS Code
-code --install-extension browser-devtools-mcp-x.x.x.vsix
+code --install-extension browser-devtools-mcp-vscode-x.x.x.vsix
 
 # Cursor
-cursor --install-extension browser-devtools-mcp-x.x.x.vsix
+cursor --install-extension browser-devtools-mcp-vscode-x.x.x.vsix
 ```
 
 ## Configuration
@@ -219,7 +219,7 @@ After changing settings, restart the MCP session:
 
 ## Contributing
 
-Contributions are welcome! Please see the [main repository](https://github.com/serkan-ozal/browser-devtools-mcp) for guidelines.
+Contributions are welcome! Please open an issue or submit a pull request on [GitHub](https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension).
 
 ## License
 
@@ -228,7 +228,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Links
 
 - [GitHub Repository](https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension) - Extension source code
-- [Open VSX Registry](https://open-vsx.org/extension/serkan-ozal/browser-devtools-mcp) - Extension page
+- [Open VSX Registry](https://open-vsx.org/extension/serkan-ozal/browser-devtools-mcp-vscode) - Extension page
 - [browser-devtools-mcp](https://github.com/serkan-ozal/browser-devtools-mcp) - Main MCP server
 - [VS Code MCP Documentation](https://code.visualstudio.com/docs/copilot/copilot-extensibility-overview)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
