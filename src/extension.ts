@@ -23,7 +23,7 @@ const SETTINGS_TO_ENV: Record<string, string> = {
     'bedrock.imageModelId': 'AMAZON_BEDROCK_IMAGE_EMBED_MODEL_ID',
     'bedrock.textModelId': 'AMAZON_BEDROCK_TEXT_EMBED_MODEL_ID',
     'bedrock.visionModelId': 'AMAZON_BEDROCK_VISION_MODEL_ID',
-    'figma.accessToken': 'FIGMA_ACCESS_TOKEN'
+    'figma.accessToken': 'FIGMA_ACCESS_TOKEN',
 };
 
 /**
@@ -35,7 +35,7 @@ function getEnvironmentFromSettings(): Record<string, string> {
 
     for (const [settingKey, envVar] of Object.entries(SETTINGS_TO_ENV)) {
         const value = config.get(settingKey);
-        
+
         if (value !== undefined && value !== null && value !== '') {
             // Convert boolean to string
             if (typeof value === 'boolean') {
@@ -61,15 +61,9 @@ class BrowserDevToolsMcpProvider implements vscode.McpServerDefinitionProvider {
 
     provideMcpServerDefinitions(): vscode.McpServerDefinition[] {
         const env = getEnvironmentFromSettings();
-        
+
         // Path to the MCP server in node_modules
-        const serverPath = path.join(
-            this.extensionPath,
-            'node_modules',
-            'browser-devtools-mcp',
-            'dist',
-            'index.js'
-        );
+        const serverPath = path.join(this.extensionPath, 'node_modules', 'browser-devtools-mcp', 'dist', 'index.js');
 
         // Merge process.env with our custom env, filtering out undefined values
         const mergedEnv: Record<string, string> = {};
@@ -82,14 +76,7 @@ class BrowserDevToolsMcpProvider implements vscode.McpServerDefinitionProvider {
             mergedEnv[key] = value;
         }
 
-        return [
-            new vscode.McpStdioServerDefinition(
-                'browser-devtools',
-                'node',
-                [serverPath],
-                mergedEnv
-            )
-        ];
+        return [new vscode.McpStdioServerDefinition('browser-devtools', 'node', [serverPath], mergedEnv)];
     }
 }
 
@@ -98,28 +85,19 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Register MCP Server Definition Provider
     const mcpProvider = new BrowserDevToolsMcpProvider(context.extensionPath);
-    const mcpDisposable = vscode.lm.registerMcpServerDefinitionProvider(
-        'browser-devtools-mcp',
-        mcpProvider
-    );
+    const mcpDisposable = vscode.lm.registerMcpServerDefinitionProvider('browser-devtools-mcp', mcpProvider);
     context.subscriptions.push(mcpDisposable);
 
     // Register Settings Webview Provider
     const settingsProvider = new SettingsWebviewProvider(context.extensionUri);
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(
-            SettingsWebviewProvider.viewType,
-            settingsProvider
-        )
+        vscode.window.registerWebviewViewProvider(SettingsWebviewProvider.viewType, settingsProvider)
     );
 
     // Register Open Settings Command
     context.subscriptions.push(
         vscode.commands.registerCommand('browserDevtoolsMcp.openSettings', () => {
-            vscode.commands.executeCommand(
-                'workbench.action.openSettings',
-                '@ext:serkan-ozal.browser-devtools-mcp'
-            );
+            vscode.commands.executeCommand('workbench.action.openSettings', '@ext:serkan-ozal.browser-devtools-mcp');
         })
     );
 
@@ -129,13 +107,15 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.window.showInformationMessage('Browser DevTools MCP: Restarting server...');
             // Trigger MCP server restart by re-registering
             // Note: VS Code MCP API may have specific restart mechanism
-            vscode.window.showInformationMessage('Browser DevTools MCP: Server configuration updated. Please restart the MCP session.');
+            vscode.window.showInformationMessage(
+                'Browser DevTools MCP: Server configuration updated. Please restart the MCP session.'
+            );
         })
     );
 
     // Watch for configuration changes
     context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration(e => {
+        vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration(CONFIG_PREFIX)) {
                 vscode.window.showInformationMessage(
                     'Browser DevTools MCP: Settings changed. Restart the MCP session to apply changes.'

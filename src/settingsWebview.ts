@@ -16,7 +16,7 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.options = {
             enableScripts: true,
-            localResourceRoots: [this._extensionUri]
+            localResourceRoots: [this._extensionUri],
         };
 
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
@@ -47,7 +47,7 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
         this._sendSettings();
 
         // Watch for config changes
-        vscode.workspace.onDidChangeConfiguration(e => {
+        vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration('browserDevtoolsMcp')) {
                 this._sendSettings();
             }
@@ -65,29 +65,29 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
                         persistent: config.get('browser.persistent'),
                         userDataDir: config.get('browser.userDataDir'),
                         useSystemBrowser: config.get('browser.useSystemBrowser'),
-                        executablePath: config.get('browser.executablePath')
+                        executablePath: config.get('browser.executablePath'),
                     },
                     opentelemetry: {
                         enable: config.get('opentelemetry.enable'),
                         serviceName: config.get('opentelemetry.serviceName'),
                         exporterType: config.get('opentelemetry.exporterType'),
                         exporterUrl: config.get('opentelemetry.exporterUrl'),
-                        exporterHeaders: config.get('opentelemetry.exporterHeaders')
+                        exporterHeaders: config.get('opentelemetry.exporterHeaders'),
                     },
                     aws: {
                         region: config.get('aws.region'),
-                        profile: config.get('aws.profile')
+                        profile: config.get('aws.profile'),
                     },
                     bedrock: {
                         enable: config.get('bedrock.enable'),
                         imageModelId: config.get('bedrock.imageModelId'),
                         textModelId: config.get('bedrock.textModelId'),
-                        visionModelId: config.get('bedrock.visionModelId')
+                        visionModelId: config.get('bedrock.visionModelId'),
                     },
                     figma: {
-                        accessToken: config.get('figma.accessToken')
-                    }
-                }
+                        accessToken: config.get('figma.accessToken'),
+                    },
+                },
             });
         }
     }
