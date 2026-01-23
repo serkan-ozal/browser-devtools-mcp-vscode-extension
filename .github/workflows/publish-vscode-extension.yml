@@ -1,4 +1,4 @@
-name: Release to Open VSX
+name: Publish VS Code Extension
 
 on:
   workflow_dispatch:
@@ -49,6 +49,14 @@ jobs:
         with:
           pat: ${{ secrets.OPEN_VSX_TOKEN }}
           skipDuplicate: true
+      - name: Publish to Visual Studio Marketplace
+        uses: HaaLeo/publish-vscode-extension@v2
+        id: publishToVSMarketplace
+        with:
+          pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
+          skipDuplicate: true
+          registryUrl: https://marketplace.visualstudio.com
+          extensionFile: ${{ steps.publishToOpenVSX.outputs.vsixPath }}
       - name: Upload VSIX Artifact
         uses: actions/upload-artifact@v4
         with:
