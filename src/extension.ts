@@ -26,6 +26,34 @@ const SETTINGS_TO_ENV: Record<string, string> = {
     'figma.accessToken': 'FIGMA_ACCESS_TOKEN',
 };
 
+
+// Status bar item
+let statusBarItem: vscode.StatusBarItem;
+
+function isExtensionEnabled(): boolean {
+    const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
+    return config.get<boolean>('enable', true);
+}
+
+function updateStatusBar(): void {
+    const enabled = isExtensionEnabled();
+    if (enabled) {
+        statusBarItem.text = '$(globe) Browser DevTools';
+        statusBarItem.tooltip = 'Browser DevTools MCP is enabled. Click to disable.';
+        statusBarItem.backgroundColor = undefined;
+    } else {
+        statusBarItem.text = '$(circle-slash) Browser DevTools';
+        statusBarItem.tooltip = 'Browser DevTools MCP is disabled. Click to enable.';
+        statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    }
+}
+
+async function toggleExtension(): Promise<void> {
+    const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
+    const currentState = config.get<boolean>('enable', true);
+    await config.update('enable', !currentState, vscode.ConfigurationTarget.Global);
+}
+
 /**
  * Get environment variables from VS Code settings
  */
@@ -60,6 +88,11 @@ class BrowserDevToolsMcpProvider implements vscode.McpServerDefinitionProvider {
     }
 
     provideMcpServerDefinitions(): vscode.McpServerDefinition[] {
+        // Check if extension is enabled
+        if (!isExtensionEnabled()) {
+            return [];
+        }
+
         const env = getEnvironmentFromSettings();
 
         // Path to the MCP server in node_modules
@@ -83,6 +116,18 @@ class BrowserDevToolsMcpProvider implements vscode.McpServerDefinitionProvider {
 export function activate(context: vscode.ExtensionContext) {
     console.log('Browser DevTools MCP extension is activating...');
 
+    // Register Toggle Extension Command FIRST (before status bar uses it)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('browserDevtoolsMcp.toggleExtension', toggleExtension)
+    );
+
+    // Create Status Bar Item (after command is registered)
+    statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    statusBarItem.command = 'browserDevtoolsMcp.toggleExtension';
+    updateStatusBar();
+    statusBarItem.show();
+    context.subscriptions.push(statusBarItem);
+
     // Register MCP Server Definition Provider
     const mcpProvider = new BrowserDevToolsMcpProvider(context.extensionPath);
     const mcpDisposable = vscode.lm.registerMcpServerDefinitionProvider('browser-devtools-mcp', mcpProvider);
@@ -97,7 +142,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Register Open Settings Command
     context.subscriptions.push(
         vscode.commands.registerCommand('browserDevtoolsMcp.openSettings', () => {
-            vscode.commands.executeCommand('workbench.action.openSettings', '@ext:serkan-ozal.browser-devtools-mcp');
+            vscode.commands.executeCommand('workbench.action.openSettings', '@ext:serkan-ozal.browser-devtools-mcp-vscode');
         })
     );
 
@@ -117,9 +162,17 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration(CONFIG_PREFIX)) {
-                vscode.window.showInformationMessage(
-                    'Browser DevTools MCP: Settings changed. Restart the MCP session to apply changes.'
-                );
+                if (e.affectsConfiguration(`${CONFIG_PREFIX}.enable`)) {
+                    updateStatusBar();
+                    const enabled = isExtensionEnabled();
+                    vscode.window.showInformationMessage(
+                        `Browser DevTools MCP: Extension ${enabled ? 'enabled' : 'disabled'}. Restart the MCP session to apply changes.`
+                    );
+                } else {
+                    vscode.window.showInformationMessage(
+                        'Browser DevTools MCP: Settings changed. Restart the MCP session to apply changes.'
+                    );
+                }
             }
         })
     );

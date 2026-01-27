@@ -32,7 +32,7 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
                 case 'openSettings': {
                     vscode.commands.executeCommand(
                         'workbench.action.openSettings',
-                        '@ext:serkan-ozal.browser-devtools-mcp'
+                        '@ext:serkan-ozal.browser-devtools-mcp-vscode'
                     );
                     break;
                 }
@@ -60,6 +60,7 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
             this._view.webview.postMessage({
                 type: 'settings',
                 settings: {
+                    enable: config.get('enable'),
                     browser: {
                         headless: config.get('browser.headless'),
                         persistent: config.get('browser.persistent'),
@@ -285,6 +286,21 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
         </div>
     </div>
 
+    <!-- Enable/Disable Extension -->
+    <div class="section">
+        <div class="section-title">Extension</div>
+        
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-label">Enable Extension</div>
+                <div class="setting-description">Enable or disable the Browser DevTools MCP extension</div>
+            </div>
+            <div class="setting-control">
+                <input type="checkbox" id="enable" checked>
+            </div>
+        </div>
+    </div>
+
     <!-- Browser Settings -->
     <div class="section">
         <div class="section-title">Browser</div>
@@ -456,6 +472,9 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
         });
 
         function updateUI(settings) {
+            // Extension enable setting
+            setCheckbox('enable', settings.enable);
+
             // Browser settings
             setCheckbox('browser.headless', settings.browser?.headless);
             setCheckbox('browser.persistent', settings.browser?.persistent);

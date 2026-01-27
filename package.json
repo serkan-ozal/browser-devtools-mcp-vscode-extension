@@ -43,6 +43,11 @@
   "contributes": {
     "commands": [
       {
+        "command": "browserDevtoolsMcp.toggleExtension",
+        "title": "Browser DevTools MCP: Toggle Enable/Disable",
+        "icon": "$(plug)"
+      },
+      {
         "command": "browserDevtoolsMcp.openSettings",
         "title": "Browser DevTools MCP: Open Settings",
         "icon": "$(settings-gear)"
@@ -67,6 +72,11 @@
     "configuration": {
       "title": "Browser DevTools MCP",
       "properties": {
+        "browserDevtoolsMcp.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable the Browser DevTools MCP extension"
+        },
         "browserDevtoolsMcp.browser.headless": {
           "type": "boolean",
           "default": true,
