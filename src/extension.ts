@@ -26,7 +26,6 @@ const SETTINGS_TO_ENV: Record<string, string> = {
     'figma.accessToken': 'FIGMA_ACCESS_TOKEN',
 };
 
-
 // Status bar item
 let statusBarItem: vscode.StatusBarItem;
 
@@ -116,12 +115,10 @@ class BrowserDevToolsMcpProvider implements vscode.McpServerDefinitionProvider {
 export function activate(context: vscode.ExtensionContext) {
     console.log('Browser DevTools MCP extension is activating...');
 
-    // Register Toggle Extension Command FIRST (before status bar uses it)
-    context.subscriptions.push(
-        vscode.commands.registerCommand('browserDevtoolsMcp.toggleExtension', toggleExtension)
-    );
+    // before status bar uses it
+    context.subscriptions.push(vscode.commands.registerCommand('browserDevtoolsMcp.toggleExtension', toggleExtension));
 
-    // Create Status Bar Item (after command is registered)
+    // after command is registered
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     statusBarItem.command = 'browserDevtoolsMcp.toggleExtension';
     updateStatusBar();
@@ -142,7 +139,10 @@ export function activate(context: vscode.ExtensionContext) {
     // Register Open Settings Command
     context.subscriptions.push(
         vscode.commands.registerCommand('browserDevtoolsMcp.openSettings', () => {
-            vscode.commands.executeCommand('workbench.action.openSettings', '@ext:serkan-ozal.browser-devtools-mcp-vscode');
+            vscode.commands.executeCommand(
+                'workbench.action.openSettings',
+                '@ext:serkan-ozal.browser-devtools-mcp-vscode'
+            );
         })
     );
 
