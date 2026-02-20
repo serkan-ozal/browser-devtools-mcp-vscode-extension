@@ -12,6 +12,9 @@ const SETTINGS_TO_ENV: Record<string, string> = {
     'browser.userDataDir': 'BROWSER_PERSISTENT_USER_DATA_DIR',
     'browser.useSystemBrowser': 'BROWSER_USE_INSTALLED_ON_SYSTEM',
     'browser.executablePath': 'BROWSER_EXECUTABLE_PATH',
+    'browser.locale': 'BROWSER_LOCALE',
+    platform: 'PLATFORM',
+    'node.inspectorHost': 'NODE_INSPECTOR_HOST',
     'opentelemetry.enable': 'OTEL_ENABLE',
     'opentelemetry.serviceName': 'OTEL_SERVICE_NAME',
     'opentelemetry.exporterType': 'OTEL_EXPORTER_TYPE',
@@ -24,6 +27,7 @@ const SETTINGS_TO_ENV: Record<string, string> = {
     'bedrock.textModelId': 'AMAZON_BEDROCK_TEXT_EMBED_MODEL_ID',
     'bedrock.visionModelId': 'AMAZON_BEDROCK_VISION_MODEL_ID',
     'figma.accessToken': 'FIGMA_ACCESS_TOKEN',
+    'figma.apiBaseUrl': 'FIGMA_API_BASE_URL',
 };
 
 // Status bar item

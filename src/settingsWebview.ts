@@ -61,12 +61,17 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
                 type: 'settings',
                 settings: {
                     enable: config.get('enable'),
+                    platform: config.get('platform'),
                     browser: {
                         headless: config.get('browser.headless'),
                         persistent: config.get('browser.persistent'),
                         userDataDir: config.get('browser.userDataDir'),
                         useSystemBrowser: config.get('browser.useSystemBrowser'),
                         executablePath: config.get('browser.executablePath'),
+                        locale: config.get('browser.locale'),
+                    },
+                    node: {
+                        inspectorHost: config.get('node.inspectorHost'),
                     },
                     opentelemetry: {
                         enable: config.get('opentelemetry.enable'),
@@ -87,6 +92,7 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
                     },
                     figma: {
                         accessToken: config.get('figma.accessToken'),
+                        apiBaseUrl: config.get('figma.apiBaseUrl'),
                     },
                 },
             });
@@ -299,6 +305,19 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
                 <input type="checkbox" id="enable" checked>
             </div>
         </div>
+        
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-label">Platform</div>
+                <div class="setting-description">Browser (web automation) or Node (backend debugging)</div>
+            </div>
+            <div class="setting-control">
+                <select id="platform">
+                    <option value="browser">Browser</option>
+                    <option value="node">Node</option>
+                </select>
+            </div>
+        </div>
     </div>
 
     <!-- Browser Settings -->
@@ -352,6 +371,31 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
             </div>
             <div class="setting-control">
                 <input type="text" id="browser.executablePath" placeholder="/path/to/chrome">
+            </div>
+        </div>
+        
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-label">Locale</div>
+                <div class="setting-description">Browser locale (e.g., en-US, tr-TR)</div>
+            </div>
+            <div class="setting-control">
+                <input type="text" id="browser.locale" placeholder="en-US">
+            </div>
+        </div>
+    </div>
+
+    <!-- Node Settings (when platform is node) -->
+    <div class="section">
+        <div class="section-title">Node</div>
+        
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-label">Inspector Host</div>
+                <div class="setting-description">For Docker (e.g., host.docker.internal)</div>
+            </div>
+            <div class="setting-control">
+                <input type="text" id="node.inspectorHost" placeholder="127.0.0.1">
             </div>
         </div>
     </div>
@@ -453,6 +497,16 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
                 <input type="text" id="figma.accessToken" placeholder="figd_xxx">
             </div>
         </div>
+        
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-label">API Base URL</div>
+                <div class="setting-description">Figma API base URL (optional)</div>
+            </div>
+            <div class="setting-control">
+                <input type="text" id="figma.apiBaseUrl" placeholder="https://api.figma.com/v1">
+            </div>
+        </div>
     </div>
 
     <button class="btn" id="openAllSettings">Open All Settings</button>
@@ -474,6 +528,7 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
         function updateUI(settings) {
             // Extension enable setting
             setCheckbox('enable', settings.enable);
+            setSelect('platform', settings.platform);
 
             // Browser settings
             setCheckbox('browser.headless', settings.browser?.headless);
@@ -481,6 +536,10 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
             setCheckbox('browser.useSystemBrowser', settings.browser?.useSystemBrowser);
             setInput('browser.userDataDir', settings.browser?.userDataDir);
             setInput('browser.executablePath', settings.browser?.executablePath);
+            setInput('browser.locale', settings.browser?.locale);
+
+            // Node settings
+            setInput('node.inspectorHost', settings.node?.inspectorHost);
 
             // OpenTelemetry settings
             setCheckbox('opentelemetry.enable', settings.opentelemetry?.enable);
@@ -495,6 +554,7 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
 
             // Figma settings
             setInput('figma.accessToken', settings.figma?.accessToken);
+            setInput('figma.apiBaseUrl', settings.figma?.apiBaseUrl);
         }
 
         function setCheckbox(id, value) {
@@ -509,7 +569,7 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
 
         function setSelect(id, value) {
             const el = document.getElementById(id);
-            if (el) el.value = value || 'none';
+            if (el) el.value = value || (id === 'platform' ? 'browser' : 'none');
         }
 
         // Add event listeners to all inputs

@@ -67,6 +67,12 @@ Browser DevTools MCP: Open Settings
 
 ### Available Settings
 
+#### General
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `browserDevtoolsMcp.platform` | `"browser"` | MCP platform: `browser` (web automation) or `node` (Node.js debugging) |
+
 #### Browser
 
 | Setting | Default | Description |
@@ -76,6 +82,13 @@ Browser DevTools MCP: Open Settings
 | `browserDevtoolsMcp.browser.userDataDir` | `""` | Directory for persistent user data |
 | `browserDevtoolsMcp.browser.useSystemBrowser` | `false` | Use system browser instead of bundled |
 | `browserDevtoolsMcp.browser.executablePath` | `""` | Custom browser executable path |
+| `browserDevtoolsMcp.browser.locale` | `""` | Browser locale (e.g., en-US, tr-TR) |
+
+#### Node (when platform is `node`)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `browserDevtoolsMcp.node.inspectorHost` | `""` | Inspector host for Docker (e.g., host.docker.internal) |
 
 #### OpenTelemetry
 
@@ -103,6 +116,7 @@ Browser DevTools MCP: Open Settings
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `browserDevtoolsMcp.figma.accessToken` | `""` | Figma API access token |
+| `browserDevtoolsMcp.figma.apiBaseUrl` | `""` | Figma API base URL (default: https://api.figma.com/v1) |
 
 ## Usage
 
@@ -192,7 +206,7 @@ Execute a script to scroll all lazy-loaded images into view
 | Tool | Description |
 |------|-------------|
 | `a11y_take-aria-snapshot` | Get ARIA snapshot (YAML format) |
-| `accessibility_take-ax-tree-snapshot` | Get AX tree with visual diagnostics |
+| `a11y_take-ax-tree-snapshot` | Get AX tree with visual diagnostics |
 
 ### Observability Tools
 | Tool | Description |
@@ -269,6 +283,9 @@ Execute a script to scroll all lazy-loaded images into view
 | `debug_list-watches` | List all watch expressions |
 | `debug_clear-watches` | Clear all watch expressions |
 | `debug_status` | Get debugging status |
+| `debug_resolve-source-location` | Resolve bundle location to original source via source maps |
+
+When using **Node platform** (`browserDevtoolsMcp.platform`: `node`), additional tools are available: `debug_connect`, `debug_disconnect`, `debug_get-logs`, `run_js-in-node`.
 
 ## Development
 

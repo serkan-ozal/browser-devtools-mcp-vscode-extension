@@ -102,6 +102,23 @@
           "default": "",
           "description": "Custom path to browser executable"
         },
+        "browserDevtoolsMcp.browser.locale": {
+          "type": "string",
+          "default": "",
+          "description": "Browser locale (e.g., en-US, tr-TR)"
+        },
+        "browserDevtoolsMcp.platform": {
+          "type": "string",
+          "default": "browser",
+          "enum": ["browser", "node"],
+          "enumDescriptions": ["Web automation (Playwright)", "Node.js backend debugging"],
+          "description": "MCP platform: browser for web automation, node for Node.js process debugging"
+        },
+        "browserDevtoolsMcp.node.inspectorHost": {
+          "type": "string",
+          "default": "",
+          "description": "Inspector host for Node platform when MCP runs in Docker (e.g., host.docker.internal)"
+        },
         "browserDevtoolsMcp.opentelemetry.enable": {
           "type": "boolean",
           "default": false,
@@ -171,6 +188,11 @@
           "type": "string",
           "default": "",
           "description": "Figma API access token for design comparison features"
+        },
+        "browserDevtoolsMcp.figma.apiBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Figma API base URL (default: https://api.figma.com/v1)"
         }
       }
     },
