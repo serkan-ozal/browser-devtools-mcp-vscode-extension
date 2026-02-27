@@ -19,8 +19,8 @@ This extension integrates [browser-devtools-mcp](https://github.com/serkan-ozal/
 - ⚛️ **React DevTools** - Inspect React components and elements
 - 🔭 **OpenTelemetry** - Distributed tracing integration with trace context propagation
 - 🎨 **Figma Comparison** - Compare pages with Figma designs
-- 🐛 **Non-Blocking Debugging** - Tracepoints, logpoints, exceptionpoints, DOM and network monitoring
-- ⚡ **JavaScript Execution** - Run JS in browser context or server-side sandbox
+- 🐛 **Non-Blocking Debugging** - Tracepoints, logpoints, exceptionpoints, watch expressions, probe snapshots
+- ⚡ **JavaScript Execution** - Run JS in browser context, Node.js sandbox, or connected Node process
 
 ## Installation
 
@@ -67,10 +67,13 @@ Browser DevTools MCP: Open Settings
 
 ### Available Settings
 
+Settings below are passed to the MCP server as environment variables. Change them in Settings or in the **Browser DevTools MCP** sidebar panel (subset); restart the MCP session to apply.
+
 #### General
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `browserDevtoolsMcp.enable` | `true` | Enable or disable the extension (and MCP server) |
 | `browserDevtoolsMcp.platform` | `"browser"` | MCP platform: `browser` (web automation) or `node` (Node.js debugging) |
 
 #### Browser
@@ -83,12 +86,15 @@ Browser DevTools MCP: Open Settings
 | `browserDevtoolsMcp.browser.useSystemBrowser` | `false` | Use system browser instead of bundled |
 | `browserDevtoolsMcp.browser.executablePath` | `""` | Custom browser executable path |
 | `browserDevtoolsMcp.browser.locale` | `""` | Browser locale (e.g., en-US, tr-TR) |
+| `browserDevtoolsMcp.browser.consoleMessagesBufferSize` | `1000` | Max console messages to buffer |
+| `browserDevtoolsMcp.browser.httpRequestsBufferSize` | `1000` | Max HTTP requests to buffer |
 
 #### Node (when platform is `node`)
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `browserDevtoolsMcp.node.inspectorHost` | `""` | Inspector host for Docker (e.g., host.docker.internal) |
+| `browserDevtoolsMcp.node.consoleMessagesBufferSize` | `1000` | Max console messages to buffer in Node process |
 
 #### OpenTelemetry
 
@@ -96,6 +102,9 @@ Browser DevTools MCP: Open Settings
 |---------|---------|-------------|
 | `browserDevtoolsMcp.opentelemetry.enable` | `false` | Enable OpenTelemetry instrumentation |
 | `browserDevtoolsMcp.opentelemetry.serviceName` | `"frontend"` | Service name for traces |
+| `browserDevtoolsMcp.opentelemetry.serviceVersion` | `""` | Service version for traces |
+| `browserDevtoolsMcp.opentelemetry.assetsDir` | `""` | OpenTelemetry assets directory |
+| `browserDevtoolsMcp.opentelemetry.instrumentationUserInteractionEvents` | `""` | Comma-separated events to instrument (default: click) |
 | `browserDevtoolsMcp.opentelemetry.exporterType` | `"none"` | Exporter: `none`, `console`, `otlp/http` |
 | `browserDevtoolsMcp.opentelemetry.exporterUrl` | `""` | OTLP collector URL |
 | `browserDevtoolsMcp.opentelemetry.exporterHeaders` | `""` | HTTP headers for collector |
@@ -117,6 +126,13 @@ Browser DevTools MCP: Open Settings
 |---------|---------|-------------|
 | `browserDevtoolsMcp.figma.accessToken` | `""` | Figma API access token |
 | `browserDevtoolsMcp.figma.apiBaseUrl` | `""` | Figma API base URL (default: https://api.figma.com/v1) |
+
+#### Advanced (MCP)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `browserDevtoolsMcp.toolOutputSchemaDisable` | `false` | Omit tool output schema from MCP registration (can reduce token usage) |
+| `browserDevtoolsMcp.availableToolDomains` | `""` | Comma-separated domains to enable (e.g. navigation,interaction,a11y). Empty = all. |
 
 ## Usage
 
@@ -155,7 +171,7 @@ Scroll to the bottom of the page
 Show me the console errors on this page
 What network requests failed on this page?
 Set a tracepoint at line 50 in main.js and capture the call stack
-Monitor DOM mutations on the #content element
+Get probe snapshots after triggering the code path
 ```
 
 **API Mocking:**
@@ -178,8 +194,7 @@ Execute a script to scroll all lazy-loaded images into view
 |------|-------------|
 | `navigation_go-to` | Navigate to a URL |
 | `navigation_reload` | Reload the page |
-| `navigation_go-back` | Go back in history |
-| `navigation_go-forward` | Go forward in history |
+| `navigation_go-back-or-forward` | Go back or forward in history (direction: back \| forward) |
 
 ### Content Tools
 | Tool | Description |
@@ -242,6 +257,7 @@ Execute a script to scroll all lazy-loaded images into view
 |------|-------------|
 | `run_js-in-browser` | Execute JavaScript in browser page context |
 | `run_js-in-sandbox` | Execute JavaScript in Node.js VM sandbox |
+| `run_js-in-node` | Execute JavaScript in connected Node process (Node platform only) |
 
 ### Figma Tools
 | Tool | Description |
@@ -252,40 +268,18 @@ Execute a script to scroll all lazy-loaded images into view
 | Tool | Description |
 |------|-------------|
 | `debug_put-tracepoint` | Set a tracepoint (captures call stack) |
-| `debug_remove-tracepoint` | Remove a tracepoint |
-| `debug_list-tracepoints` | List all tracepoints |
-| `debug_clear-tracepoints` | Clear all tracepoints |
-| `debug_get-tracepoint-snapshots` | Get tracepoint snapshots |
-| `debug_clear-tracepoint-snapshots` | Clear tracepoint snapshots |
 | `debug_put-logpoint` | Set a logpoint (evaluates expression) |
-| `debug_remove-logpoint` | Remove a logpoint |
-| `debug_list-logpoints` | List all logpoints |
-| `debug_clear-logpoints` | Clear all logpoints |
-| `debug_get-logpoint-snapshots` | Get logpoint snapshots |
-| `debug_clear-logpoint-snapshots` | Clear logpoint snapshots |
-| `debug_put-exceptionpoint` | Enable exception catching |
-| `debug_get-exceptionpoint-snapshots` | Get exception snapshots |
-| `debug_clear-exceptionpoint-snapshots` | Clear exception snapshots |
-| `debug_put-dompoint` | Set DOM mutation breakpoint |
-| `debug_remove-dompoint` | Remove DOM breakpoint |
-| `debug_list-dompoints` | List all DOM breakpoints |
-| `debug_clear-dompoints` | Clear all DOM breakpoints |
-| `debug_get-dompoint-snapshots` | Get DOM mutation snapshots |
-| `debug_clear-dompoint-snapshots` | Clear DOM snapshots |
-| `debug_put-netpoint` | Set network request breakpoint |
-| `debug_remove-netpoint` | Remove network breakpoint |
-| `debug_list-netpoints` | List all network breakpoints |
-| `debug_clear-netpoints` | Clear all network breakpoints |
-| `debug_get-netpoint-snapshots` | Get network snapshots |
-| `debug_clear-netpoint-snapshots` | Clear network snapshots |
-| `debug_add-watch` | Add watch expression |
-| `debug_remove-watch` | Remove watch expression |
-| `debug_list-watches` | List all watch expressions |
-| `debug_clear-watches` | Clear all watch expressions |
-| `debug_status` | Get debugging status |
+| `debug_put-exceptionpoint` | Configure exception breakpoints (none, uncaught, all) |
+| `debug_add-watch` | Add watch expression (evaluated at every tracepoint hit) |
+| `debug_remove-probe` | Remove a tracepoint, logpoint, or watch by type and id |
+| `debug_list-probes` | List tracepoints, logpoints, and/or watches |
+| `debug_clear-probes` | Clear tracepoints, logpoints, and/or watch expressions |
+| `debug_get-probe-snapshots` | Get tracepoint, logpoint, and/or exceptionpoint snapshots |
+| `debug_clear-probe-snapshots` | Clear probe snapshots (optional types, probeId) |
+| `debug_status` | Get debugging status (probe counts, exceptionpoint state) |
 | `debug_resolve-source-location` | Resolve bundle location to original source via source maps |
 
-When using **Node platform** (`browserDevtoolsMcp.platform`: `node`), additional tools are available: `debug_connect`, `debug_disconnect`, `debug_get-logs`, `run_js-in-node`.
+When using **Node platform** (`browserDevtoolsMcp.platform`: `node`), additional tools: `debug_connect`, `debug_disconnect`, `debug_get-logs`, `run_js-in-node`.
 
 ## Development
 

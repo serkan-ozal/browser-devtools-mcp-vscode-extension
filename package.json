@@ -1,7 +1,7 @@
 {
   "name": "browser-devtools-mcp-vscode",
   "displayName": "Browser DevTools MCP",
-  "description": "Playwright-powered browser automation and debugging for VS Code and Cursor via MCP. Enables AI assistants to navigate, screenshot, inspect accessibility, measure Web Vitals, mock APIs, and debug React components in real browsers.",
+  "description": "Playwright-powered browser automation and Node.js backend debugging for VS Code and Cursor via MCP. Enables AI assistants to navigate, screenshot, inspect accessibility, measure Web Vitals, mock APIs, debug React components, and use tracepoints/logpoints in browser or Node.",
   "version": "0.3.0",
   "publisher": "serkan-ozal",
   "author": {
@@ -107,6 +107,16 @@
           "default": "",
           "description": "Browser locale (e.g., en-US, tr-TR)"
         },
+        "browserDevtoolsMcp.browser.consoleMessagesBufferSize": {
+          "type": "number",
+          "default": 1000,
+          "description": "Max console messages to buffer in browser (default: 1000)"
+        },
+        "browserDevtoolsMcp.browser.httpRequestsBufferSize": {
+          "type": "number",
+          "default": 1000,
+          "description": "Max HTTP requests to buffer in browser (default: 1000)"
+        },
         "browserDevtoolsMcp.platform": {
           "type": "string",
           "default": "browser",
@@ -125,6 +135,11 @@
           "default": "",
           "description": "Inspector host for Node platform when MCP runs in Docker (e.g., host.docker.internal)"
         },
+        "browserDevtoolsMcp.node.consoleMessagesBufferSize": {
+          "type": "number",
+          "default": 1000,
+          "description": "Max console messages to buffer in Node process (default: 1000)"
+        },
         "browserDevtoolsMcp.opentelemetry.enable": {
           "type": "boolean",
           "default": false,
@@ -134,6 +149,21 @@
           "type": "string",
           "default": "frontend",
           "description": "OpenTelemetry service name"
+        },
+        "browserDevtoolsMcp.opentelemetry.serviceVersion": {
+          "type": "string",
+          "default": "",
+          "description": "OpenTelemetry service version"
+        },
+        "browserDevtoolsMcp.opentelemetry.assetsDir": {
+          "type": "string",
+          "default": "",
+          "description": "OpenTelemetry assets directory"
+        },
+        "browserDevtoolsMcp.opentelemetry.instrumentationUserInteractionEvents": {
+          "type": "string",
+          "default": "",
+          "description": "Comma-separated user interaction events to instrument (default: click). E.g. click,submit"
         },
         "browserDevtoolsMcp.opentelemetry.exporterType": {
           "type": "string",
@@ -199,6 +229,16 @@
           "type": "string",
           "default": "",
           "description": "Figma API base URL (default: https://api.figma.com/v1)"
+        },
+        "browserDevtoolsMcp.toolOutputSchemaDisable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Omit tool output schema from MCP registration (can reduce token usage)"
+        },
+        "browserDevtoolsMcp.availableToolDomains": {
+          "type": "string",
+          "default": "",
+          "description": "Comma-separated tool domains to enable (e.g. navigation,interaction,a11y). Empty = all. Browser: a11y, content, debug, figma, interaction, navigation, o11y, react, run, stub, sync. Node: debug, run."
         }
       }
     },

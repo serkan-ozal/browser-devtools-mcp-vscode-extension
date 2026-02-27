@@ -13,10 +13,16 @@ const SETTINGS_TO_ENV: Record<string, string> = {
     'browser.useSystemBrowser': 'BROWSER_USE_INSTALLED_ON_SYSTEM',
     'browser.executablePath': 'BROWSER_EXECUTABLE_PATH',
     'browser.locale': 'BROWSER_LOCALE',
+    'browser.consoleMessagesBufferSize': 'BROWSER_CONSOLE_MESSAGES_BUFFER_SIZE',
+    'browser.httpRequestsBufferSize': 'BROWSER_HTTP_REQUESTS_BUFFER_SIZE',
     platform: 'PLATFORM',
     'node.inspectorHost': 'NODE_INSPECTOR_HOST',
+    'node.consoleMessagesBufferSize': 'NODE_CONSOLE_MESSAGES_BUFFER_SIZE',
     'opentelemetry.enable': 'OTEL_ENABLE',
     'opentelemetry.serviceName': 'OTEL_SERVICE_NAME',
+    'opentelemetry.serviceVersion': 'OTEL_SERVICE_VERSION',
+    'opentelemetry.assetsDir': 'OTEL_ASSETS_DIR',
+    'opentelemetry.instrumentationUserInteractionEvents': 'OTEL_INSTRUMENTATION_USER_INTERACTION_EVENTS',
     'opentelemetry.exporterType': 'OTEL_EXPORTER_TYPE',
     'opentelemetry.exporterUrl': 'OTEL_EXPORTER_HTTP_URL',
     'opentelemetry.exporterHeaders': 'OTEL_EXPORTER_HTTP_HEADERS',
@@ -28,6 +34,8 @@ const SETTINGS_TO_ENV: Record<string, string> = {
     'bedrock.visionModelId': 'AMAZON_BEDROCK_VISION_MODEL_ID',
     'figma.accessToken': 'FIGMA_ACCESS_TOKEN',
     'figma.apiBaseUrl': 'FIGMA_API_BASE_URL',
+    toolOutputSchemaDisable: 'TOOL_OUTPUT_SCHEMA_DISABLE',
+    availableToolDomains: 'AVAILABLE_TOOL_DOMAINS',
 };
 
 // Status bar item
@@ -67,13 +75,9 @@ function getEnvironmentFromSettings(): Record<string, string> {
     for (const [settingKey, envVar] of Object.entries(SETTINGS_TO_ENV)) {
         const value = config.get(settingKey);
 
-        if (value !== undefined && value !== null && value !== '') {
-            // Convert boolean to string
-            if (typeof value === 'boolean') {
-                env[envVar] = value.toString();
-            } else {
-                env[envVar] = String(value);
-            }
+        const skip = value === undefined || value === null || (typeof value === 'string' && value === '');
+        if (!skip) {
+            env[envVar] = typeof value === 'boolean' ? value.toString() : String(value);
         }
     }
 
