@@ -2,7 +2,7 @@
   "name": "browser-devtools-mcp-vscode",
   "displayName": "Browser DevTools MCP",
   "description": "Playwright-powered browser automation and Node.js backend debugging for VS Code and Cursor via MCP. Enables AI assistants to navigate, screenshot, inspect accessibility, measure Web Vitals, mock APIs, debug React components, and use tracepoints/logpoints in browser or Node.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "serkan-ozal",
   "author": {
     "name": "Serkan Ozal",
