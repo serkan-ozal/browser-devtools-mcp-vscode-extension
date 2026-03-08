@@ -21,6 +21,7 @@ This extension integrates [browser-devtools-mcp](https://github.com/serkan-ozal/
 - 🎨 **Figma Comparison** - Compare pages with Figma designs
 - 🐛 **Non-Blocking Debugging** - Tracepoints, logpoints, exceptionpoints, watch expressions, probe snapshots
 - ⚡ **Execute** - Batch multiple tool calls in one request via JavaScript and `callTool()`; on browser platform `page` (Playwright Page) is available for `page.evaluate()`, `page.locator()`, etc.
+- 🌐 **Playwright Browsers** - On first activation, Chromium (and headless shell + ffmpeg) is installed automatically into the default Playwright cache. Use the **Browser DevTools MCP: Install Browsers...** command to manually install Chromium, Firefox, and/or WebKit on demand.
 
 ## Installation
 
@@ -50,6 +51,15 @@ code --install-extension browser-devtools-mcp-vscode-x.x.x.vsix
 # Cursor
 cursor --install-extension browser-devtools-mcp-vscode-x.x.x.vsix
 ```
+
+## Playwright Browsers
+
+The extension uses Playwright’s browser binaries (Chromium, Firefox, WebKit), stored in the default cache (e.g. `~/.cache/ms-playwright` on Linux, `~/Library/Caches/ms-playwright` on macOS).
+
+- **First run:** After you install the extension, it will automatically install the default Chromium set (chromium, chromium-headless-shell, ffmpeg) in the background on first activation. This runs once per machine (tracked in extension global state).
+- **Manual install:** Run **Browser DevTools MCP: Install Browsers...** from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) to choose which browsers to install: Chromium, Firefox, and/or WebKit. You can select one or more; Chromium includes the headless shell and ffmpeg.
+
+To skip automatic browser download (e.g. you use a system browser or custom path), set the environment variable `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` before starting VS Code/Cursor.
 
 ## Configuration
 
@@ -318,9 +328,9 @@ npm run package
 
 ### Browser Not Launching
 
-1. Try disabling headless mode in settings
-2. Check if a custom executable path is needed
-3. Ensure Playwright browsers are installed
+1. Ensure Playwright browsers are installed: run **Browser DevTools MCP: Install Browsers...** from the Command Palette and install at least Chromium (or Firefox/WebKit if you use them).
+2. Try disabling headless mode in settings
+3. Check if a custom executable path is needed (e.g. system browser or custom build)
 
 ### Settings Not Applying
 
