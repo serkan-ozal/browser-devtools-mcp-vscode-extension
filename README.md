@@ -20,7 +20,7 @@ This extension integrates [browser-devtools-mcp](https://github.com/serkan-ozal/
 - 🔭 **OpenTelemetry** - Distributed tracing integration with trace context propagation
 - 🎨 **Figma Comparison** - Compare pages with Figma designs
 - 🐛 **Non-Blocking Debugging** - Tracepoints, logpoints, exceptionpoints, watch expressions, probe snapshots
-- ⚡ **JavaScript Execution** - Run JS in browser context, Node.js sandbox, or connected Node process
+- ⚡ **Execute** - Batch multiple tool calls in one request via JavaScript and `callTool()`; on browser platform `page` (Playwright Page) is available for `page.evaluate()`, `page.locator()`, etc.
 
 ## Installation
 
@@ -132,7 +132,7 @@ Settings below are passed to the MCP server as environment variables. Change the
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `browserDevtoolsMcp.toolOutputSchemaDisable` | `false` | Omit tool output schema from MCP registration (can reduce token usage) |
-| `browserDevtoolsMcp.availableToolDomains` | `""` | Comma-separated domains to enable (e.g. navigation,interaction,a11y). Empty = all. |
+| `browserDevtoolsMcp.availableToolDomains` | `""` | Comma-separated domains to enable (e.g. navigation,interaction,a11y). Empty = all. Browser: a11y, content, debug, figma, interaction, navigation, o11y, react, run, stub, sync. Node: debug, run. |
 
 ## Usage
 
@@ -181,10 +181,10 @@ Intercept all API requests and add an auth header
 List all active stubs and clear them
 ```
 
-**JavaScript Execution:**
+**Execute (batch tool calls + optional page script):**
 ```
-Run JavaScript to get the current user from localStorage
-Execute a script to scroll all lazy-loaded images into view
+Use execute to fill the login form and click submit in one call
+Run a script that calls callTool('navigation_go-to', { url: '...' }) then callTool('a11y_take-aria-snapshot', {}, true)
 ```
 
 ## Available MCP Tools
@@ -252,12 +252,10 @@ Execute a script to scroll all lazy-loaded images into view
 | `react_get-component-for-element` | Get React component for DOM element |
 | `react_get-element-for-component` | Get DOM element for React component |
 
-### Run Tools
+### Execute
 | Tool | Description |
 |------|-------------|
-| `run_js-in-browser` | Execute JavaScript in browser page context |
-| `run_js-in-sandbox` | Execute JavaScript in Node.js VM sandbox |
-| `run_js-in-node` | Execute JavaScript in connected Node process (Node platform only) |
+| `execute` | Batch-execute multiple tool calls in one request via JavaScript; use `callTool(name, input, returnOutput?)` to invoke tools. On browser platform the script has `page` (Playwright Page) for `page.evaluate()`, `page.locator()`, etc. Reduces round-trips and token usage. |
 
 ### Figma Tools
 | Tool | Description |
@@ -279,7 +277,7 @@ Execute a script to scroll all lazy-loaded images into view
 | `debug_status` | Get debugging status (probe counts, exceptionpoint state) |
 | `debug_resolve-source-location` | Resolve bundle location to original source via source maps |
 
-When using **Node platform** (`browserDevtoolsMcp.platform`: `node`), additional tools: `debug_connect`, `debug_disconnect`, `debug_get-logs`, `run_js-in-node`.
+When using **Node platform** (`browserDevtoolsMcp.platform`: `node`), additional tools: `debug_connect`, `debug_disconnect`, `debug_get-logs`.
 
 ## Development
 
