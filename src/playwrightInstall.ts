@@ -1,11 +1,7 @@
 import * as child_process from 'child_process';
 
 /** Browser names passed to "playwright install". Chromium set includes headless-shell and ffmpeg. */
-export const CHROMIUM_INSTALL_NAMES = [
-    'chromium',
-    'chromium-headless-shell',
-    'ffmpeg',
-] as const;
+export const CHROMIUM_INSTALL_NAMES = ['chromium', 'chromium-headless-shell', 'ffmpeg'] as const;
 
 export const FIREFOX_INSTALL_NAMES = ['firefox'] as const;
 export const WEBKIT_INSTALL_NAMES = ['webkit'] as const;
@@ -60,13 +56,7 @@ export function installPlaywrightBrowsers(browserNames: string[]): Promise<void>
             if (code === 0) {
                 resolve();
             } else {
-                reject(
-                    new Error(
-                        signal
-                            ? `Install killed: ${signal}`
-                            : `Install exited with code ${code}`
-                    )
-                );
+                reject(new Error(signal ? `Install killed: ${signal}` : `Install exited with code ${code}`));
             }
         });
     });

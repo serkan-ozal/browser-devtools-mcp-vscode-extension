@@ -1,11 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { SettingsWebviewProvider } from './settingsWebview';
-import {
-    getDefaultChromiumBrowsers,
-    getInstallNamesForChoice,
-    installPlaywrightBrowsers,
-} from './playwrightInstall';
+import { getDefaultChromiumBrowsers, getInstallNamesForChoice, installPlaywrightBrowsers } from './playwrightInstall';
 
 // Configuration key prefix
 const CONFIG_PREFIX = 'browserDevtoolsMcp';
@@ -80,7 +76,10 @@ function runFirstTimeChromiumInstall(context: vscode.ExtensionContext): void {
     if (context.globalState.get(GLOBALSTATE_PLAYWRIGHT_CHROMIUM_INSTALLED)) {
         return;
     }
-    if (process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD === '1' || process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD === 'true') {
+    if (
+        process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD === '1' ||
+        process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD === 'true'
+    ) {
         return;
     }
     const toInstall = getDefaultChromiumBrowsers();
@@ -126,14 +125,10 @@ async function installBrowsersCommand(): Promise<void> {
             progress.report({ message: `Installing ${unique.join(', ')}...` });
             try {
                 await installPlaywrightBrowsers(unique);
-                void vscode.window.showInformationMessage(
-                    `Browser DevTools MCP: Installed ${unique.join(', ')}.`
-                );
+                void vscode.window.showInformationMessage(`Browser DevTools MCP: Installed ${unique.join(', ')}.`);
             } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
-                void vscode.window.showErrorMessage(
-                    `Browser DevTools MCP: Install failed. ${msg}`
-                );
+                void vscode.window.showErrorMessage(`Browser DevTools MCP: Install failed. ${msg}`);
                 throw err;
             }
         }
