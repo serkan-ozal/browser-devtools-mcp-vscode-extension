@@ -9,4 +9,5 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 !dist/**
-# node_modules not excluded — full bundle so browser-devtools-mcp and all deps are in VSIX
+# MCP server installed at runtime (ensureMcpServerInstalled) so no need to bundle node_modules
+node_modules/**

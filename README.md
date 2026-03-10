@@ -21,7 +21,8 @@ This extension integrates [browser-devtools-mcp](https://www.npmjs.com/package/b
 - 🎨 **Figma Comparison** - Compare pages with Figma designs
 - 🐛 **Non-Blocking Debugging** - Tracepoints, logpoints, exceptionpoints, watch expressions, probe snapshots
 - ⚡ **Execute** - Batch multiple tool calls in one request via JavaScript and `callTool()`; on browser platform `page` (Playwright Page) is available for `page.evaluate()`, `page.locator()`, etc.
-- 🌐 **Playwright Browsers** - On first activation, Chromium (and headless shell + ffmpeg) is installed automatically into the default Playwright cache. Use the **Browser DevTools MCP: Install Browsers...** command to manually install Chromium, Firefox, and/or WebKit on demand.
+- 🌐 **Playwright Browsers** - When the MCP server is installed (via npm), Playwright browser packages install Chromium (and headless shell, ffmpeg) via their postinstall hooks.
+- 📦 **MCP Server** - Installed at runtime on first activate (always `latest`). If already installed for the current extension version, it is reused. After an extension update or reinstall, the server is reinstalled with `latest`. Use **Browser DevTools MCP: Install MCP Server...** to install or switch to a specific version (version list from npm).
 
 ## Installation
 
@@ -54,14 +55,23 @@ cursor --install-extension browser-devtools-mcp-vscode-x.x.x.vsix
 
 **Registration:** In Cursor the extension registers the MCP server via Cursor’s native MCP API (no `mcp.json` needed). In VS Code 1.96+ it uses `vscode.lm.registerMcpServerDefinitionProvider`. The server is started automatically when the extension is enabled.
 
+## MCP Server (runtime install)
+
+The browser-devtools-mcp server is **not bundled** in the extension. It is installed at runtime so native dependencies (e.g. sharp) match your platform.
+
+- **First activate:** If the server is not yet installed, it is installed automatically with version `latest`. You may see a short “Installing MCP server…” notification.
+- **Already installed:** If the server is already present and was installed by the same extension version, it is reused. If the extension was updated or reinstalled, the server is reinstalled with `latest`.
+- **Manual install / change version:** Run **Browser DevTools MCP: Install MCP Server...** from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`). A version picker opens; the list is fetched from npm. Choose **Latest** or a specific version. After install, restart the MCP server to use it.
+
+Install location: the extension’s global storage (e.g. per-user, not inside the extension folder).
+
 ## Playwright Browsers
 
 The extension uses Playwright’s browser binaries (Chromium, Firefox, WebKit), stored in the default cache (e.g. `~/.cache/ms-playwright` on Linux, `~/Library/Caches/ms-playwright` on macOS).
 
-- **First run:** After you install the extension, it will automatically install the default Chromium set (chromium, chromium-headless-shell, ffmpeg) in the background on first activation. This runs once per machine (tracked in extension global state).
-- **Manual install:** Run **Browser DevTools MCP: Install Browsers...** from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) to choose which browsers to install: Chromium, Firefox, and/or WebKit. You can select one or more; Chromium includes the headless shell and ffmpeg.
+- **Installation:** When the MCP server is installed (first activate or via Install MCP Server), npm installs `browser-devtools-mcp` and its dependencies. The Playwright browser packages (`@playwright/browser-chromium`, etc.) run their postinstall hooks and download the browser binaries. No separate browser-install step is run by the extension.
 
-To skip automatic browser download (e.g. you use a system browser or custom path), set the environment variable `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` before starting VS Code/Cursor.
+To skip browser download (e.g. you use a system browser or custom path), set the environment variable `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` before starting VS Code/Cursor.
 
 ## Configuration
 
@@ -333,13 +343,13 @@ This unregisters the server, stops any running MCP processes (e.g. Cursor-starte
 
 ### MCP Server Not Starting
 
-1. Check that Node.js 22+ is installed
-2. Verify the extension is enabled
-3. Check Output panel for "Browser DevTools MCP" logs
+1. Run **Browser DevTools MCP: Install MCP Server...** to install or reinstall the server (choose Latest or a version).
+2. Check that Node.js 22+ is installed and the extension is enabled.
+3. Check Output panel for "Browser DevTools MCP" logs.
 
 ### Browser Not Launching
 
-1. Ensure Playwright browsers are installed: run **Browser DevTools MCP: Install Browsers...** from the Command Palette and install at least Chromium (or Firefox/WebKit if you use them).
+1. Ensure the MCP server is installed (run **Browser DevTools MCP: Install MCP Server...** if needed). Playwright browsers are installed when the MCP server is installed via npm.
 2. Try disabling headless mode in settings
 3. Check if a custom executable path is needed (e.g. system browser or custom build)
 
