@@ -6,7 +6,7 @@
 
 Playwright-powered browser automation and debugging for VS Code and Cursor via the Model Context Protocol (MCP).
 
-This extension integrates [browser-devtools-mcp](https://github.com/serkan-ozal/browser-devtools-mcp) into your IDE, enabling AI assistants like GitHub Copilot and Cursor AI to interact with real web browsers for testing, debugging, and automation tasks.
+This extension integrates [browser-devtools-mcp](https://www.npmjs.com/package/browser-devtools-mcp) into your IDE, enabling AI assistants like GitHub Copilot and Cursor AI to interact with real web browsers for testing, debugging, and automation tasks.
 
 ## Features
 
@@ -51,6 +51,8 @@ code --install-extension browser-devtools-mcp-vscode-x.x.x.vsix
 # Cursor
 cursor --install-extension browser-devtools-mcp-vscode-x.x.x.vsix
 ```
+
+**Registration:** In Cursor the extension registers the MCP server via Cursor’s native MCP API (no `mcp.json` needed). In VS Code 1.96+ it uses `vscode.lm.registerMcpServerDefinitionProvider`. The server is started automatically when the extension is enabled.
 
 ## Playwright Browsers
 
@@ -320,6 +322,15 @@ npm run package
 
 ## Troubleshooting
 
+### Restart the MCP server
+
+If you run into problems—for example the MCP server fails to start, the browser that was opened has closed, MCP processes have leaked, or you see other odd behavior—try restarting the MCP server first:
+
+1. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
+2. Run **Browser DevTools MCP: Restart Server**
+
+This unregisters the server, stops any running MCP processes (e.g. Cursor-started ones), and registers it again so a fresh process is started.
+
 ### MCP Server Not Starting
 
 1. Check that Node.js 22+ is installed
@@ -335,7 +346,7 @@ npm run package
 ### Settings Not Applying
 
 After changing settings, restart the MCP session:
-1. Run command: `Browser DevTools MCP: Restart Server`
+1. Run the command **Browser DevTools MCP: Restart Server**
 2. Or reload the VS Code/Cursor window (`Cmd+Shift+P` → "Developer: Reload Window")
 
 ## Contributing
@@ -350,6 +361,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 - [GitHub Repository](https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension) - Extension source code
 - [Open VSX Registry](https://open-vsx.org/extension/serkan-ozal/browser-devtools-mcp-vscode) - Extension page
-- [browser-devtools-mcp](https://github.com/serkan-ozal/browser-devtools-mcp) - Main MCP server
+- [browser-devtools-mcp](https://www.npmjs.com/package/browser-devtools-mcp) - Main MCP server (npm)
 - [VS Code MCP Documentation](https://code.visualstudio.com/docs/copilot/copilot-extensibility-overview)
 - [Model Context Protocol](https://modelcontextprotocol.io/)

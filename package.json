@@ -19,7 +19,7 @@
     "url": "https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension/issues"
   },
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": ">=1.96.0"
   },
   "icon": "images/icon.png",
   "categories": [
@@ -247,16 +247,6 @@
           "default": "",
           "description": "Comma-separated tool domains to enable (e.g. navigation,interaction,a11y). Empty = all. Browser: a11y, content, debug, figma, interaction, navigation, o11y, react, run, stub, sync. Node: debug, run."
         }
-      }
-    },
-    "mcpServers": {
-      "browser-devtools": {
-        "type": "stdio",
-        "command": "npx",
-        "args": [
-          "-y",
-          "browser-devtools-mcp@latest"
-        ]
       }
     }
   },

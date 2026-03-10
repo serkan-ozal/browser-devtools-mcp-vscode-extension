@@ -9,5 +9,4 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 !dist/**
-node_modules/**
-!node_modules/browser-devtools-mcp/**
+# node_modules not excluded — full bundle so browser-devtools-mcp and all deps are in VSIX
