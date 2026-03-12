@@ -9,7 +9,7 @@ import { SettingsWebviewProvider } from './settingsWebview';
 const CONFIG_PREFIX = 'browserDevtoolsMcp';
 
 // GitHub repo for issue reporting when install fails
-const GITHUB_ISSUES_URL = 'https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension/issues/new';
+const GITHUB_ISSUES_BASE = 'https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension/issues/new';
 
 // MCP server installed at runtime (like Playwright browsers); avoids bundling sharp for all platforms
 const MCP_SERVER_INSTALL_DIR = 'mcp-server';
@@ -171,21 +171,28 @@ async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promi
             cancellable: false,
         },
         async (progress) => {
-            progress.report({ message: 'Installing MCP server…' });
+            progress.report({ message: `Installing browser-devtools-mcp@${DEFAULT_MCP_SERVER_VERSION}…` });
             try {
                 doMcpServerInstall(installDir, DEFAULT_MCP_SERVER_VERSION);
             } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
                 console.error('[Browser DevTools MCP] npm install failed:', msg);
-                void vscode.window.showErrorMessage(
-                    `Browser DevTools MCP: Failed to install MCP server. ${msg} Check network and try again.`
+                showErrorWithIssueLink(
+                    `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
+                    false,
+                    err
                 );
                 throw err;
             }
             if (!fs.existsSync(serverPath)) {
                 const msg = 'MCP server not found after install.';
-                void vscode.window.showErrorMessage(`Browser DevTools MCP: ${msg}`);
-                throw new Error(msg);
+                const err = new Error(msg);
+                showErrorWithIssueLink(
+                    `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
+                    false,
+                    err
+                );
+                throw err;
             }
             if (currentVersion !== '') {
                 fs.mkdirSync(installDir, { recursive: true });
@@ -193,6 +200,9 @@ async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promi
             }
             cachedMcpServerPath = serverPath;
             console.log('[Browser DevTools MCP] Installed server:', serverPath);
+            void vscode.window.showInformationMessage(
+                `Browser DevTools MCP: Installed browser-devtools-mcp@${DEFAULT_MCP_SERVER_VERSION}. Ready to use.`
+            );
             return serverPath;
         }
     );
@@ -247,7 +257,11 @@ async function installMcpServerCommand(context: vscode.ExtensionContext): Promis
                 );
             } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
-                void vscode.window.showErrorMessage(`Browser DevTools MCP: Install failed. ${msg}`);
+                showErrorWithIssueLink(
+                    `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
+                    false,
+                    err
+                );
                 throw err;
             }
         }
@@ -282,13 +296,50 @@ function getMcpServerConfig(): {
 }
 
 /**
- * Show warning with GitHub issue link (for Cursor MCP or other extension errors).
+ * Build GitHub issue URL with optional title and body (query params are encoded).
  */
-function showErrorWithIssueLink(message: string, isWarning = false): void {
+function buildGitHubIssueUrl(title: string, body?: string): string {
+    const params = new URLSearchParams();
+    params.set('title', title);
+    if (body) {
+        params.set('body', body);
+    }
+    return `${GITHUB_ISSUES_BASE}?${params.toString()}`;
+}
+
+/**
+ * Format error for GitHub issue body: type, message, stack.
+ */
+function formatErrorForIssueBody(error: unknown): string {
+    if (error instanceof Error) {
+        const type = error.constructor?.name ?? 'Error';
+        const stack = error.stack ?? '(no stack)';
+        return [
+            '## Error details',
+            '',
+            `**Type:** \`${type}\``,
+            '',
+            `**Message:** ${error.message}`,
+            '',
+            '**Stack:**',
+            '```',
+            stack,
+            '```',
+        ].join('\n');
+    }
+    return `**Message:** ${String(error)}`;
+}
+
+/**
+ * Show warning/error with GitHub issue link. If `error` is provided, issue body is prefilled with type, message and stack.
+ */
+function showErrorWithIssueLink(message: string, isWarning = false, error?: unknown): void {
     const show = isWarning ? vscode.window.showWarningMessage : vscode.window.showErrorMessage;
     void show(message, 'Open issue on GitHub').then((choice) => {
         if (choice === 'Open issue on GitHub') {
-            void vscode.env.openExternal(vscode.Uri.parse(GITHUB_ISSUES_URL));
+            const title = message.slice(0, 100).replace(/\s+/g, ' ').trim();
+            const body = error !== undefined ? formatErrorForIssueBody(error) : undefined;
+            void vscode.env.openExternal(vscode.Uri.parse(buildGitHubIssueUrl(title, body)));
         }
     });
 }
@@ -328,7 +379,8 @@ async function registerCursorMcp(): Promise<void> {
         console.warn('[Browser DevTools MCP] Cursor MCP register failed:', msg);
         showErrorWithIssueLink(
             `Browser DevTools MCP: Failed to register MCP server with Cursor. ${msg} Please report the issue if it persists.`,
-            true
+            true,
+            err
         );
     }
 }
