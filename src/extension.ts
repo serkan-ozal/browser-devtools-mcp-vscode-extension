@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { SettingsWebviewProvider } from './settingsWebview';
+import { trackCursorExtInstalled, trackCursorExtUninstalled } from './telemetry';
 
 // Configuration key prefix
 const CONFIG_PREFIX = 'browserDevtoolsMcp';
@@ -21,6 +22,9 @@ const MCP_SERVER_NAME = 'browser-devtools';
 const CURSOR_MCP_SERVER_ARG = '--cursor-mcp-server';
 
 let cachedMcpServerPath: string | null = null;
+
+/** Set in activate so deactivate can detect uninstall (.obsolete) and send uninstall telemetry. */
+let extensionPathForDeactivate: string | null = null;
 
 // Map VS Code settings to environment variables
 const SETTINGS_TO_ENV: Record<string, string> = {
@@ -109,14 +113,15 @@ function getMcpServerInstallDir(context: vscode.ExtensionContext): string {
 /**
  * Run npm install browser-devtools-mcp@version in installDir. Throws on failure.
  * Playwright browser binaries are installed by @playwright/browser-chromium (etc.) postinstall hooks during npm install.
- * npm expects a package.json in the target dir; we create a minimal one so install has a valid project root.
+ * @param cleanFirst - If true (manual install only), remove installDir first so install is from scratch. If false, reuse existing folder.
  */
-function doMcpServerInstall(installDir: string, version: string): void {
+function doMcpServerInstall(installDir: string, version: string, cleanFirst = false): void {
+    if (cleanFirst && fs.existsSync(installDir)) {
+        fs.rmSync(installDir, { recursive: true, force: true });
+    }
     fs.mkdirSync(installDir, { recursive: true });
     const pkgPath = path.join(installDir, 'package.json');
-    if (!fs.existsSync(pkgPath)) {
-        fs.writeFileSync(pkgPath, JSON.stringify({ name: MCP_SERVER_INSTALL_DIR, private: true }, null, 2));
-    }
+    fs.writeFileSync(pkgPath, JSON.stringify({ name: MCP_SERVER_INSTALL_DIR, private: true }, null, 2));
     const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     cp.execSync(`${npmCmd} install browser-devtools-mcp@${version}`, {
         cwd: installDir,
@@ -124,6 +129,17 @@ function doMcpServerInstall(installDir: string, version: string): void {
         timeout: 120_000,
         stdio: 'pipe',
     });
+}
+
+/** Remove mcp-server folder so next install starts from scratch. Use on install failure to avoid half-installed state. */
+function removeMcpServerInstallDir(installDir: string): void {
+    try {
+        if (fs.existsSync(installDir)) {
+            fs.rmSync(installDir, { recursive: true, force: true });
+        }
+    } catch {
+        /* non-fatal */
+    }
 }
 
 function getExtensionVersion(context: vscode.ExtensionContext): string {
@@ -135,6 +151,8 @@ function getExtensionVersion(context: vscode.ExtensionContext): string {
  * Ensure browser-devtools-mcp is installed (globalStorage or bundled for dev). Returns path to dist/index.js.
  * Installs at runtime so sharp and native deps match user's platform.
  * If server exists but was installed by a different extension version (update/reinstall), we reinstall latest.
+ * We always treat globalStorage as source of truth: if the file is missing there (e.g. folder cleared), we reinstall
+ * even when bundled server exists, so the mcp-server folder is never left empty.
  */
 async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promise<string> {
     if (cachedMcpServerPath !== null) {
@@ -146,24 +164,49 @@ async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promi
     // Dev only: extension's node_modules (published VSIX has no node_modules, so this is never used by end users)
     const bundledPath = path.join(context.extensionPath, 'node_modules', 'browser-devtools-mcp', 'dist', 'index.js');
 
-    if (fs.existsSync(bundledPath)) {
-        cachedMcpServerPath = bundledPath;
-        console.log('[Browser DevTools MCP] Using bundled server (dev):', bundledPath);
-        return bundledPath;
-    }
-
     const currentVersion = getExtensionVersion(context);
     const needInstall =
         !fs.existsSync(serverPath) ||
         (currentVersion !== '' &&
             (!fs.existsSync(markerPath) || fs.readFileSync(markerPath, 'utf8').trim() !== currentVersion));
 
+    // 1) globalStorage has valid server → use it (don't rely on state; trust disk)
     if (fs.existsSync(serverPath) && !needInstall) {
         cachedMcpServerPath = serverPath;
         console.log('[Browser DevTools MCP] Using installed server:', serverPath);
         return serverPath;
     }
 
+    // 2) Bundled exists but globalStorage empty/corrupt → use bundled for this session and populate globalStorage
+    if (fs.existsSync(bundledPath)) {
+        cachedMcpServerPath = bundledPath;
+        console.log('[Browser DevTools MCP] Using bundled server (dev):', bundledPath);
+        if (needInstall) {
+            void vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: 'Browser DevTools MCP',
+                    cancellable: false,
+                },
+                async (progress) => {
+                    progress.report({ message: `Installing browser-devtools-mcp@${DEFAULT_MCP_SERVER_VERSION}…` });
+                    try {
+                        doMcpServerInstall(installDir, DEFAULT_MCP_SERVER_VERSION);
+                        if (currentVersion !== '') {
+                            fs.mkdirSync(installDir, { recursive: true });
+                            fs.writeFileSync(markerPath, currentVersion, 'utf8');
+                        }
+                    } catch (err) {
+                        console.error('[Browser DevTools MCP] Background install to globalStorage failed:', err);
+                        removeMcpServerInstallDir(installDir);
+                    }
+                }
+            );
+        }
+        return bundledPath;
+    }
+
+    // 3) No valid server on disk → install to globalStorage (blocking)
     return await vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
@@ -175,6 +218,7 @@ async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promi
             try {
                 doMcpServerInstall(installDir, DEFAULT_MCP_SERVER_VERSION);
             } catch (err) {
+                removeMcpServerInstallDir(installDir);
                 const msg = err instanceof Error ? err.message : String(err);
                 console.error('[Browser DevTools MCP] npm install failed:', msg);
                 showErrorWithIssueLink(
@@ -185,6 +229,7 @@ async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promi
                 throw err;
             }
             if (!fs.existsSync(serverPath)) {
+                removeMcpServerInstallDir(installDir);
                 const msg = 'MCP server not found after install.';
                 const err = new Error(msg);
                 showErrorWithIssueLink(
@@ -247,7 +292,7 @@ async function installMcpServerCommand(context: vscode.ExtensionContext): Promis
         async (progress) => {
             progress.report({ message: `Installing browser-devtools-mcp@${version}…` });
             try {
-                doMcpServerInstall(installDir, version);
+                doMcpServerInstall(installDir, version, true);
                 const serverPath = path.join(installDir, 'node_modules', 'browser-devtools-mcp', 'dist', 'index.js');
                 if (fs.existsSync(serverPath)) {
                     cachedMcpServerPath = serverPath;
@@ -256,6 +301,7 @@ async function installMcpServerCommand(context: vscode.ExtensionContext): Promis
                     `Browser DevTools MCP: Installed browser-devtools-mcp@${version}. Restart the MCP server to use it.`
                 );
             } catch (err) {
+                removeMcpServerInstallDir(installDir);
                 const msg = err instanceof Error ? err.message : String(err);
                 showErrorWithIssueLink(
                     `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
@@ -388,6 +434,7 @@ async function registerCursorMcp(): Promise<void> {
 /**
  * Find PIDs of node processes that we started (have CURSOR_MCP_SERVER_ARG in command line).
  * Used on extension deactivate / restart to kill only our MCP server processes, not extension host.
+ * On Darwin/Linux uses pgrep -f first (full command line match); falls back to ps -eo pid,args (may truncate on macOS).
  */
 function getPidsOfCursorMcpProcesses(): number[] {
     const pids: number[] = [];
@@ -395,15 +442,31 @@ function getPidsOfCursorMcpProcesses(): number[] {
     try {
         const platform = os.platform();
         if (platform === 'darwin' || platform === 'linux') {
-            const out = cp.execSync('ps -eo pid,args', { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
-            for (const line of out.split('\n')) {
-                const m = line.match(/^\s*(\d+)\s+(.*)/);
-                if (!m) {
-                    continue;
+            try {
+                const pgrepOut = cp.execSync(`pgrep -f "${CURSOR_MCP_SERVER_ARG}"`, {
+                    encoding: 'utf8',
+                    maxBuffer: 64 * 1024,
+                });
+                for (const line of pgrepOut.trim().split(/\s+/)) {
+                    const n = parseInt(line, 10);
+                    if (!Number.isNaN(n)) {
+                        pids.push(n);
+                    }
                 }
-                const args = m[2].toLowerCase();
-                if (args.includes(marker)) {
-                    pids.push(parseInt(m[1], 10));
+            } catch {
+                // pgrep exits 1 when no match; fall back to ps
+            }
+            if (pids.length === 0) {
+                const out = cp.execSync('ps -eo pid,args', { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
+                for (const line of out.split('\n')) {
+                    const m = line.match(/^\s*(\d+)\s+(.*)/);
+                    if (!m) {
+                        continue;
+                    }
+                    const args = m[2].toLowerCase();
+                    if (args.includes(marker)) {
+                        pids.push(parseInt(m[1], 10));
+                    }
                 }
             }
         } else if (platform === 'win32') {
@@ -459,20 +522,24 @@ function sleep(ms: number): Promise<void> {
  */
 async function killCursorMcpProcesses(): Promise<void> {
     const pids = getPidsOfCursorMcpProcesses();
+    if (pids.length === 0) {
+        console.log('[Browser DevTools MCP] killCursorMcpProcesses: no MCP server PIDs found (process may already exit or not match).');
+        return;
+    }
+    console.log(`[Browser DevTools MCP] killCursorMcpProcesses: found ${pids.length} PID(s), sending SIGTERM:`, pids);
     for (const pid of pids) {
         try {
             process.kill(pid, 'SIGTERM');
-        } catch {
-            // process may already be gone
+        } catch (err) {
+            const code = (err as NodeJS.ErrnoException)?.code ?? 'unknown';
+            console.warn(`[Browser DevTools MCP] killCursorMcpProcesses: SIGTERM failed for PID ${pid}:`, code, (err as Error)?.message ?? err);
         }
-    }
-    if (pids.length === 0) {
-        return;
     }
     const deadline = Date.now() + KILL_MCP_PROCESSES_TIMEOUT_MS;
     while (Date.now() < deadline) {
         const stillAlive = pids.filter((pid) => isProcessAlive(pid));
         if (stillAlive.length === 0) {
+            console.log('[Browser DevTools MCP] killCursorMcpProcesses: all PIDs exited.');
             return;
         }
         await new Promise((r) => setTimeout(r, KILL_MCP_PROCESSES_POLL_MS));
@@ -483,6 +550,15 @@ async function killCursorMcpProcesses(): Promise<void> {
             `[Browser DevTools MCP] Timeout (${KILL_MCP_PROCESSES_TIMEOUT_MS / 1000}s) waiting for MCP processes to exit. PIDs still alive:`,
             stillAlive
         );
+        console.log('[Browser DevTools MCP] killCursorMcpProcesses: sending SIGKILL to remaining PIDs.');
+        for (const pid of stillAlive) {
+            try {
+                process.kill(pid, 'SIGKILL');
+            } catch (err) {
+                const code = (err as NodeJS.ErrnoException)?.code ?? 'unknown';
+                console.warn(`[Browser DevTools MCP] killCursorMcpProcesses: SIGKILL failed for PID ${pid}:`, code, (err as Error)?.message ?? err);
+            }
+        }
     }
 }
 
@@ -542,7 +618,89 @@ class BrowserDevToolsMcpProvider implements vscode.McpServerDefinitionProvider {
     }
 }
 
+/** Marker file in globalStorage: when present, extension was already activated (install event already sent). Uninstall removes globalStorage so re-install sends again. */
+const EXTENSION_ACTIVATED_MARKER = '.extension-activated';
+
+/** Process-local guard so we never send cursor_ext_installed more than once per session. */
+let telemetryFirstInstallSentThisSession = false;
+
+/**
+ * On activate: if .extension-activated is absent, treat as install and send cursor_ext_installed. Create the file atomically (wx) so concurrent activations only let one succeed.
+ * Call once at activate. Never throws; any telemetry error is caught and logged.
+ */
+function runFirstInstallTelemetryIfNeeded(context: vscode.ExtensionContext): void {
+    try {
+        if (telemetryFirstInstallSentThisSession) {
+            return;
+        }
+        const markerPath = path.join(context.globalStoragePath, EXTENSION_ACTIVATED_MARKER);
+        fs.mkdirSync(context.globalStoragePath, { recursive: true });
+        try {
+            fs.writeFileSync(markerPath, '', { flag: 'wx' });
+        } catch (err) {
+            const code = (err as NodeJS.ErrnoException)?.code;
+            if (code === 'EEXIST') {
+                return;
+            }
+            console.error('[Browser DevTools MCP] Could not create extension-activated marker:', err);
+            return;
+        }
+        telemetryFirstInstallSentThisSession = true;
+
+        const telemetryEnabled = vscode.workspace
+            .getConfiguration(CONFIG_PREFIX)
+            .get<boolean>('telemetry.enable', true);
+        if (!telemetryEnabled) {
+            syncTelemetryDisabledToConfig();
+            return;
+        }
+        trackCursorExtInstalled((context.extension.packageJSON as { version?: string }).version ?? '0.0.0');
+    } catch (err) {
+        console.error('[Browser DevTools MCP] Telemetry (cursor_ext_installed) failed:', err);
+    }
+}
+
+/** Sync telemetry disabled state to ~/.browser-devtools-mcp/config.json so telemetry respects opt-out. Never throws. */
+function syncTelemetryDisabledToConfig(): void {
+    try {
+        syncTelemetryEnabledToConfigFile(false);
+    } catch (err) {
+        console.error('[Browser DevTools MCP] Telemetry sync (disabled) failed:', err);
+    }
+}
+
+/** Sync telemetry enabled state to ~/.browser-devtools-mcp/config.json so telemetry matches the setting. Never throws. */
+function syncTelemetryEnabledToConfig(): void {
+    try {
+        syncTelemetryEnabledToConfigFile(true);
+    } catch (err) {
+        console.error('[Browser DevTools MCP] Telemetry sync (enabled) failed:', err);
+    }
+}
+
+function syncTelemetryEnabledToConfigFile(enabled: boolean): void {
+    try {
+        const configDir = path.join(os.homedir(), '.browser-devtools-mcp');
+        const configPath = path.join(configDir, 'config.json');
+        let data: Record<string, unknown> = {};
+        if (fs.existsSync(configPath)) {
+            data = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as Record<string, unknown>;
+        }
+        data.telemetryEnabled = enabled;
+        if (!fs.existsSync(configDir)) {
+            fs.mkdirSync(configDir, { recursive: true });
+        }
+        fs.writeFileSync(configPath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch {
+        /* non-fatal */
+    }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
+    extensionPathForDeactivate = context.extensionPath;
+
+    runFirstInstallTelemetryIfNeeded(context);
+
     // before status bar uses it
     context.subscriptions.push(vscode.commands.registerCommand('browserDevtoolsMcp.toggleExtension', toggleExtension));
 
@@ -558,14 +716,22 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Register MCP: Cursor uses cursor.mcp.registerServer; VS Code uses lm.registerMcpServerDefinitionProvider (VS Code 1.96+).
     if (isCursor()) {
-        await unregisterCursorMcp();
-        // Kill any lingering MCP processes from a previous run, wait for them to exit, then register (same as Restart Server).
-        await killCursorMcpProcesses();
-        await registerCursorMcp();
-        // Extension host kapanınca (Cursor kapanınca veya reload) MCP process'lerini de sonlandır.
-        process.once('exit', async () => {
+        const ourExt = vscode.extensions.all.find((ext) => ext.id === context.extension.id);
+        const shouldRegisterMcp = ourExt != null && ourExt.isActive;
+        if (!shouldRegisterMcp) {
+            console.log(
+                'Browser DevTools MCP: Extension not in vscode.extensions.all or not active, skipping MCP registration.'
+            );
+        } else {
+            await unregisterCursorMcp();
+            // Kill any lingering MCP processes from a previous run, wait for them to exit, then register (same as Restart Server).
             await killCursorMcpProcesses();
-        });
+            await registerCursorMcp();
+            // Extension host kapanınca (Cursor kapanınca veya reload) MCP process'lerini de sonlandır.
+            process.once('exit', async () => {
+                await killCursorMcpProcesses();
+            });
+        }
     } else if (vscode.lm?.registerMcpServerDefinitionProvider) {
         const mcpProvider = new BrowserDevToolsMcpProvider(context.extensionPath);
         const mcpDisposable = vscode.lm.registerMcpServerDefinitionProvider('browser-devtools-mcp', mcpProvider);
@@ -642,6 +808,19 @@ export async function activate(context: vscode.ExtensionContext) {
                     vscode.window.showInformationMessage(
                         `Browser DevTools MCP: Extension ${enabled ? 'enabled' : 'disabled'}. Restart the MCP session to apply changes.`
                     );
+                } else if (e.affectsConfiguration(`${CONFIG_PREFIX}.telemetry.enable`)) {
+                    try {
+                        const telemetryEnabled = vscode.workspace
+                            .getConfiguration(CONFIG_PREFIX)
+                            .get<boolean>('telemetry.enable', true);
+                        if (telemetryEnabled) {
+                            syncTelemetryEnabledToConfig();
+                        } else {
+                            syncTelemetryDisabledToConfig();
+                        }
+                    } catch (err) {
+                        console.error('[Browser DevTools MCP] Telemetry config change handling failed:', err);
+                    }
                 } else {
                     if (getCursorMcp() && isExtensionEnabled()) {
                         void (async () => {
@@ -664,5 +843,26 @@ export async function activate(context: vscode.ExtensionContext) {
 export async function deactivate(): Promise<void> {
     await unregisterCursorMcp();
     await killCursorMcpProcesses();
+
+    // If we're in .obsolete, host is uninstalling us; send uninstall event (Cursor may not run vscode:uninstall).
+    if (extensionPathForDeactivate) {
+        try {
+            const extensionsDir = path.dirname(extensionPathForDeactivate);
+            const obsoletePath = path.join(extensionsDir, '.obsolete');
+            const folderName = path.basename(extensionPathForDeactivate);
+            if (fs.existsSync(obsoletePath)) {
+                const content = fs.readFileSync(obsoletePath, 'utf8').trim();
+                const obsolete: Record<string, boolean> = content
+                    ? (JSON.parse(content) as Record<string, boolean>)
+                    : {};
+                if (obsolete[folderName] === true) {
+                    await trackCursorExtUninstalled();
+                }
+            }
+        } catch {
+            /* non-fatal */
+        }
+    }
+
     console.log('Browser DevTools MCP extension deactivated');
 }

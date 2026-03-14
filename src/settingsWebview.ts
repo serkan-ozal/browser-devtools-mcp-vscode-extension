@@ -559,17 +559,23 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
 
         function setCheckbox(id, value) {
             const el = document.getElementById(id);
-            if (el) el.checked = !!value;
+            if (el) {
+                el.checked = !!value;
+            }
         }
 
         function setInput(id, value) {
             const el = document.getElementById(id);
-            if (el) el.value = value || '';
+            if (el) {
+                el.value = value || '';
+            }
         }
 
         function setSelect(id, value) {
             const el = document.getElementById(id);
-            if (el) el.value = value || (id === 'platform' ? 'browser' : 'none');
+            if (el) {
+                el.value = value || (id === 'platform' ? 'browser' : 'none');
+            }
         }
 
         // Add event listeners to all inputs

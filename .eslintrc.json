@@ -16,7 +16,7 @@
                 "format": ["camelCase", "PascalCase"]
             }
         ],
-        "curly": "warn",
+        "curly": ["error", "all"],
         "eqeqeq": "warn",
         "no-throw-literal": "warn",
         "semi": "warn"
