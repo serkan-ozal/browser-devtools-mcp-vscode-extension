@@ -124,6 +124,21 @@
           "default": 1000,
           "description": "Max HTTP requests to buffer in browser (default: 1000)"
         },
+        "browserDevtoolsMcp.install.chromium": {
+          "type": "boolean",
+          "default": true,
+          "description": "Install Chromium when installing the MCP server. Change requires running 'Install MCP Server' to apply."
+        },
+        "browserDevtoolsMcp.install.firefox": {
+          "type": "boolean",
+          "default": false,
+          "description": "Install Firefox when installing the MCP server. Change requires running 'Install MCP Server' to apply."
+        },
+        "browserDevtoolsMcp.install.webkit": {
+          "type": "boolean",
+          "default": false,
+          "description": "Install WebKit when installing the MCP server. Change requires running 'Install MCP Server' to apply."
+        },
         "browserDevtoolsMcp.platform": {
           "type": "string",
           "default": "browser",

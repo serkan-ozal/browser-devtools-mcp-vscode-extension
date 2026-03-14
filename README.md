@@ -21,7 +21,7 @@ This extension integrates [browser-devtools-mcp](https://www.npmjs.com/package/b
 - 🎨 **Figma Comparison** - Compare pages with Figma designs
 - 🐛 **Non-Blocking Debugging** - Tracepoints, logpoints, exceptionpoints, watch expressions, probe snapshots
 - ⚡ **Execute** - Batch multiple tool calls in one request via JavaScript and `callTool()`; on browser platform `page` (Playwright Page) is available for `page.evaluate()`, `page.locator()`, etc.
-- 🌐 **Playwright Browsers** - When the MCP server is installed (via npm), Playwright browser packages install Chromium (and headless shell, ffmpeg) via their postinstall hooks.
+- 🌐 **Playwright Browsers** - When the MCP server is installed (via npm), Playwright browser packages install the browsers you choose in settings (Chromium, Firefox, WebKit). Default: Chromium only.
 - 📦 **MCP Server** - Installed at runtime on first activate (always `latest`). If already installed for the current extension version, it is reused. After an extension update or reinstall, the server is reinstalled with `latest`. Use **Browser DevTools MCP: Install MCP Server...** to install or switch to a specific version (version list from npm).
 
 ## Installation
@@ -69,7 +69,8 @@ Install location: the extension’s global storage (e.g. per-user, not inside th
 
 The extension uses Playwright’s browser binaries (Chromium, Firefox, WebKit), stored in the default cache (e.g. `~/.cache/ms-playwright` on Linux, `~/Library/Caches/ms-playwright` on macOS).
 
-- **Installation:** When the MCP server is installed (first activate or via Install MCP Server), npm installs `browser-devtools-mcp` and its dependencies. The Playwright browser packages (`@playwright/browser-chromium`, etc.) run their postinstall hooks and download the browser binaries. No separate browser-install step is run by the extension.
+- **Which browsers to install:** In Settings, use `browserDevtoolsMcp.install.chromium`, `install.firefox`, and `install.webkit` (default: only Chromium). When the MCP server is installed (first activate or via **Install MCP Server**), only the enabled browsers are downloaded. If you change these settings, run **Browser DevTools MCP: Install MCP Server...** again so the new selection takes effect.
+- **Installation:** npm installs `browser-devtools-mcp` and its dependencies; the Playwright browser packages run their postinstall hooks and download the selected browser binaries. No separate browser-install step is run by the extension.
 
 To skip browser download (e.g. you use a system browser or custom path), set the environment variable `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` before starting VS Code/Cursor.
 
@@ -97,6 +98,14 @@ Settings below are passed to the MCP server as environment variables. Change the
 |---------|---------|-------------|
 | `browserDevtoolsMcp.enable` | `true` | Enable or disable the extension (and MCP server) |
 | `browserDevtoolsMcp.platform` | `"browser"` | MCP platform: `browser` (web automation) or `node` (Node.js debugging) |
+
+#### Install (browsers to download when installing MCP server)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `browserDevtoolsMcp.install.chromium` | `true` | Install Chromium when installing the MCP server. Change requires running **Install MCP Server** to apply. |
+| `browserDevtoolsMcp.install.firefox` | `false` | Install Firefox when installing the MCP server. Change requires running **Install MCP Server** to apply. |
+| `browserDevtoolsMcp.install.webkit` | `false` | Install WebKit when installing the MCP server. Change requires running **Install MCP Server** to apply. |
 
 #### Browser
 

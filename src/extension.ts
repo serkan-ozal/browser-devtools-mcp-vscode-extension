@@ -107,9 +107,18 @@ function getMcpServerInstallDir(context: vscode.ExtensionContext): string {
 }
 
 /**
+ * Remove the MCP server install directory (globalStorage/mcp-server) for a clean reinstall.
+ */
+function removeMcpServerInstallDir(installDir: string): void {
+    if (fs.existsSync(installDir)) {
+        fs.rmSync(installDir, { recursive: true, force: true });
+    }
+}
+
+/**
  * Run npm install browser-devtools-mcp@version in installDir. Throws on failure.
- * Playwright browser binaries are installed by @playwright/browser-chromium (etc.) postinstall hooks during npm install.
- * npm expects a package.json in the target dir; we create a minimal one so install has a valid project root.
+ * Env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 so Playwright's postinstall skips; BROWSER_DEVTOOLS_INSTALL_* from settings
+ * so browser-devtools-mcp postinstall installs only the selected browsers (it unsets SKIP before calling installBrowsersForNpmInstall).
  */
 function doMcpServerInstall(installDir: string, version: string): void {
     fs.mkdirSync(installDir, { recursive: true });
@@ -117,12 +126,30 @@ function doMcpServerInstall(installDir: string, version: string): void {
     if (!fs.existsSync(pkgPath)) {
         fs.writeFileSync(pkgPath, JSON.stringify({ name: MCP_SERVER_INSTALL_DIR, private: true }, null, 2));
     }
+    const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
+    const installChromium = config.get<boolean>('install.chromium', true);
+    const installFirefox = config.get<boolean>('install.firefox', false);
+    const installWebkit = config.get<boolean>('install.webkit', false);
+    const installEnv: Record<string, string> = {
+        ...process.env,
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
+    };
+    if (installChromium) {
+        installEnv['BROWSER_DEVTOOLS_INSTALL_CHROMIUM'] = 'true';
+    }
+    if (installFirefox) {
+        installEnv['BROWSER_DEVTOOLS_INSTALL_FIREFOX'] = 'true';
+    }
+    if (installWebkit) {
+        installEnv['BROWSER_DEVTOOLS_INSTALL_WEBKIT'] = 'true';
+    }
     const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     cp.execSync(`${npmCmd} install browser-devtools-mcp@${version}`, {
         cwd: installDir,
         encoding: 'utf8',
-        timeout: 120_000,
+        timeout: 300_000,
         stdio: 'pipe',
+        env: installEnv,
     });
 }
 
@@ -245,6 +272,9 @@ async function installMcpServerCommand(context: vscode.ExtensionContext): Promis
             cancellable: false,
         },
         async (progress) => {
+            progress.report({ message: 'Cleaning previous install…' });
+            removeMcpServerInstallDir(installDir);
+            cachedMcpServerPath = null;
             progress.report({ message: `Installing browser-devtools-mcp@${version}…` });
             try {
                 doMcpServerInstall(installDir, version);
@@ -308,14 +338,19 @@ function buildGitHubIssueUrl(title: string, body?: string): string {
 }
 
 /**
- * Format error for GitHub issue body: type, message, stack.
+ * Format error for GitHub issue body: extension version, type, message, stack.
+ * Uses ** for headings so "##" is not URL-encoded to %23%23 in the issue URL.
  */
-function formatErrorForIssueBody(error: unknown): string {
+function formatErrorForIssueBody(error: unknown, extensionVersion?: string): string {
+    const lines: string[] = [];
+    if (extensionVersion) {
+        lines.push(`**Extension version:** ${extensionVersion}`, '');
+    }
     if (error instanceof Error) {
         const type = error.constructor?.name ?? 'Error';
         const stack = error.stack ?? '(no stack)';
-        return [
-            '## Error details',
+        lines.push(
+            '**Error details**',
             '',
             `**Type:** \`${type}\``,
             '',
@@ -324,21 +359,25 @@ function formatErrorForIssueBody(error: unknown): string {
             '**Stack:**',
             '```',
             stack,
-            '```',
-        ].join('\n');
+            '```'
+        );
+        return lines.join('\n');
     }
-    return `**Message:** ${String(error)}`;
+    lines.push(`**Message:** ${String(error)}`);
+    return lines.join('\n');
 }
 
 /**
- * Show warning/error with GitHub issue link. If `error` is provided, issue body is prefilled with type, message and stack.
+ * Show warning/error with GitHub issue link. If `error` is provided, issue body is prefilled with extension version, type, message and stack.
  */
 function showErrorWithIssueLink(message: string, isWarning = false, error?: unknown): void {
     const show = isWarning ? vscode.window.showWarningMessage : vscode.window.showErrorMessage;
     void show(message, 'Open issue on GitHub').then((choice) => {
         if (choice === 'Open issue on GitHub') {
             const title = message.slice(0, 100).replace(/\s+/g, ' ').trim();
-            const body = error !== undefined ? formatErrorForIssueBody(error) : undefined;
+            const ext = vscode.extensions.getExtension('serkan-ozal.browser-devtools-mcp-vscode');
+            const extensionVersion = ext?.packageJSON?.version ?? '';
+            const body = error !== undefined ? formatErrorForIssueBody(error, extensionVersion) : undefined;
             void vscode.env.openExternal(vscode.Uri.parse(buildGitHubIssueUrl(title, body)));
         }
     });
@@ -641,6 +680,14 @@ export async function activate(context: vscode.ExtensionContext) {
                     }
                     vscode.window.showInformationMessage(
                         `Browser DevTools MCP: Extension ${enabled ? 'enabled' : 'disabled'}. Restart the MCP session to apply changes.`
+                    );
+                } else if (
+                    e.affectsConfiguration(`${CONFIG_PREFIX}.install.chromium`) ||
+                    e.affectsConfiguration(`${CONFIG_PREFIX}.install.firefox`) ||
+                    e.affectsConfiguration(`${CONFIG_PREFIX}.install.webkit`)
+                ) {
+                    vscode.window.showInformationMessage(
+                        'Browser DevTools MCP: Install browsers setting changed. Run **Install MCP Server** to reinstall with the new selection.'
                     );
                 } else {
                     if (getCursorMcp() && isExtensionEnabled()) {
