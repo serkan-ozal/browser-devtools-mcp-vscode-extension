@@ -4,6 +4,15 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { SettingsWebviewProvider } from './settingsWebview';
+import {
+    trackCursorExtInstallFailed,
+    trackCursorExtInstalled,
+    trackCursorExtMcpInstallFailed,
+    trackCursorExtMcpInstalled,
+    trackCursorExtUninstallFailed,
+    trackCursorExtUninstalled,
+    writeTelemetryEnabledToConfig,
+} from './telemetry';
 
 // Configuration key prefix
 const CONFIG_PREFIX = 'browserDevtoolsMcp';
@@ -14,7 +23,13 @@ const GITHUB_ISSUES_BASE = 'https://github.com/serkan-ozal/browser-devtools-mcp-
 // MCP server installed at runtime (like Playwright browsers); avoids bundling sharp for all platforms
 const MCP_SERVER_INSTALL_DIR = 'mcp-server';
 const MCP_SERVER_EXTENSION_VERSION_MARKER = '.extension-version';
+const MCP_INSTALL_LOCK_FILE = '.mcp-install.lock';
 const DEFAULT_MCP_SERVER_VERSION = 'latest';
+/** If lock file is older than this, a waiter may remove it (stale lock). */
+const MCP_INSTALL_LOCK_STALE_MS = 5 * 60 * 1000;
+/** How long waiters poll for installer to finish. */
+const MCP_INSTALL_WAITER_TIMEOUT_MS = 5 * 60 * 1000;
+const MCP_INSTALL_POLL_INTERVAL_MS = 1500;
 
 /** File under globalStorage to track extension version for first-run / upgrade; only one activate runs onInstall. */
 const EXTENSION_VERSION_FILE = '.extension-version';
@@ -34,6 +49,7 @@ let cachedMcpServerPath: string | null = null;
 /** Set in activate; deactivate receives no context so we keep these for .obsolete check and runUninstallIfNeeded. */
 let extensionPathForDeactivate: string | null = null;
 let globalStoragePathForDeactivate: string | null = null;
+let extensionVersionForDeactivate: string = '';
 
 // Map VS Code settings to environment variables
 const SETTINGS_TO_ENV: Record<string, string> = {
@@ -89,6 +105,12 @@ function updateStatusBar(): void {
     }
 }
 
+/** Read telemetry.enable from settings and write to ~/.browser-devtools-mcp/config.json. Call on activate and when the setting changes. */
+function syncTelemetryConfigFromVscodeSetting(): void {
+    const enabled = vscode.workspace.getConfiguration(CONFIG_PREFIX).get<boolean>('telemetry.enable', true);
+    writeTelemetryEnabledToConfig(enabled);
+}
+
 async function toggleExtension(): Promise<void> {
     const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
     const currentState = config.get<boolean>('enable', true);
@@ -125,6 +147,39 @@ function getMcpServerInstallDir(context: vscode.ExtensionContext): string {
 function removeMcpServerInstallDir(installDir: string): void {
     if (fs.existsSync(installDir)) {
         fs.rmSync(installDir, { recursive: true, force: true });
+    }
+}
+
+/** Path to the MCP install lock file (shared across extension host processes). */
+function getMcpInstallLockPath(context: vscode.ExtensionContext): string {
+    return path.join(context.globalStoragePath, MCP_INSTALL_LOCK_FILE);
+}
+
+/**
+ * Try to acquire the MCP install lock. Returns true if we own the lock, false if another process holds it.
+ * Call releaseMcpInstallLock when done (install success or failure).
+ */
+function tryAcquireMcpInstallLock(context: vscode.ExtensionContext): boolean {
+    const lockPath = getMcpInstallLockPath(context);
+    fs.mkdirSync(context.globalStoragePath, { recursive: true });
+    try {
+        fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+        return true;
+    } catch (e: unknown) {
+        const err = e as NodeJS.ErrnoException;
+        if (err?.code === 'EEXIST') {
+            return false;
+        }
+        throw e;
+    }
+}
+
+/** Release the MCP install lock so other processes can install or proceed. */
+function releaseMcpInstallLock(context: vscode.ExtensionContext): void {
+    try {
+        fs.unlinkSync(getMcpInstallLockPath(context));
+    } catch {
+        // ignore
     }
 }
 
@@ -191,6 +246,22 @@ async function onInstall(context: vscode.ExtensionContext): Promise<void> {
         }
     } catch (err) {
         console.error('[Browser DevTools MCP] Failed to copy Cursor rule to ~/.cursor/rules:', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        void trackCursorExtInstallFailed(
+            (context.extension.packageJSON as { version?: string }).version ?? '0.0.0',
+            msg
+        );
+    }
+
+    try {
+        trackCursorExtInstalled((context.extension.packageJSON as { version?: string }).version ?? '0.0.0');
+    } catch (err) {
+        console.error('[Browser DevTools MCP] Failed to track cursor extension installed:', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        void trackCursorExtInstallFailed(
+            (context.extension.packageJSON as { version?: string }).version ?? '0.0.0',
+            msg
+        );
     }
 }
 
@@ -207,9 +278,15 @@ async function runInstallIfNeeded(context: vscode.ExtensionContext): Promise<voi
     if (stored === currentVersion) {
         return;
     }
-    fs.mkdirSync(context.globalStoragePath, { recursive: true });
-    fs.writeFileSync(versionFilePath, currentVersion, 'utf8');
-    await onInstall(context);
+    try {
+        fs.mkdirSync(context.globalStoragePath, { recursive: true });
+        fs.writeFileSync(versionFilePath, currentVersion, 'utf8');
+        await onInstall(context);
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        void trackCursorExtInstallFailed(currentVersion, msg);
+        throw err;
+    }
 }
 
 /**
@@ -245,47 +322,93 @@ async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promi
         return serverPath;
     }
 
-    return await vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: 'Browser DevTools MCP',
-            cancellable: false,
-        },
-        async (progress) => {
-            progress.report({ message: `Installing browser-devtools-mcp@${DEFAULT_MCP_SERVER_VERSION}…` });
-            try {
-                doMcpServerInstall(installDir, DEFAULT_MCP_SERVER_VERSION);
-            } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                console.error('[Browser DevTools MCP] npm install failed:', msg);
-                showErrorWithIssueLink(
-                    `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
-                    false,
-                    err
-                );
-                throw err;
-            }
-            if (!fs.existsSync(serverPath)) {
-                const msg = 'MCP server not found after install.';
-                const err = new Error(msg);
-                showErrorWithIssueLink(
-                    `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
-                    false,
-                    err
-                );
-                throw err;
-            }
-            if (currentVersion !== '') {
-                fs.mkdirSync(installDir, { recursive: true });
-                fs.writeFileSync(markerPath, currentVersion, 'utf8');
-            }
-            cachedMcpServerPath = serverPath;
-            console.log('[Browser DevTools MCP] Installed server:', serverPath);
-            void vscode.window.showInformationMessage(
-                `Browser DevTools MCP: Installed browser-devtools-mcp@${DEFAULT_MCP_SERVER_VERSION}. Ready to use.`
-            );
-            return serverPath;
+    function isServerReady(): boolean {
+        if (!fs.existsSync(serverPath)) {
+            return false;
         }
+        if (currentVersion === '') {
+            return true;
+        }
+        return fs.existsSync(markerPath) && fs.readFileSync(markerPath, 'utf8').trim() === currentVersion;
+    }
+
+    const lockPath = getMcpInstallLockPath(context);
+    const acquired = tryAcquireMcpInstallLock(context);
+    if (acquired) {
+        try {
+            return await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: 'Browser DevTools MCP',
+                    cancellable: false,
+                },
+                async (progress) => {
+                    progress.report({ message: `Installing browser-devtools-mcp@${DEFAULT_MCP_SERVER_VERSION}…` });
+                    try {
+                        doMcpServerInstall(installDir, DEFAULT_MCP_SERVER_VERSION);
+                    } catch (err) {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        console.error('[Browser DevTools MCP] npm install failed:', msg);
+                        void trackCursorExtMcpInstallFailed(currentVersion, DEFAULT_MCP_SERVER_VERSION, msg);
+                        showErrorWithIssueLink(
+                            `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
+                            false,
+                            err
+                        );
+                        throw err;
+                    }
+                    if (!fs.existsSync(serverPath)) {
+                        const msg = 'MCP server not found after install.';
+                        void trackCursorExtMcpInstallFailed(currentVersion, DEFAULT_MCP_SERVER_VERSION, msg);
+                        const err = new Error(msg);
+                        showErrorWithIssueLink(
+                            `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
+                            false,
+                            err
+                        );
+                        throw err;
+                    }
+                    if (currentVersion !== '') {
+                        fs.mkdirSync(installDir, { recursive: true });
+                        fs.writeFileSync(markerPath, currentVersion, 'utf8');
+                    }
+                    cachedMcpServerPath = serverPath;
+                    console.log('[Browser DevTools MCP] Installed server:', serverPath);
+                    void trackCursorExtMcpInstalled(currentVersion, DEFAULT_MCP_SERVER_VERSION);
+                    void vscode.window.showInformationMessage(
+                        `Browser DevTools MCP: Installed browser-devtools-mcp@${DEFAULT_MCP_SERVER_VERSION}. Ready to use.`
+                    );
+                    return serverPath;
+                }
+            );
+        } finally {
+            releaseMcpInstallLock(context);
+        }
+    }
+
+    // Another window is installing; wait for it to finish, then use the server (no event from this process).
+    const deadline = Date.now() + MCP_INSTALL_WAITER_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        if (fs.existsSync(lockPath)) {
+            try {
+                const stat = fs.statSync(lockPath);
+                if (Date.now() - stat.mtimeMs > MCP_INSTALL_LOCK_STALE_MS) {
+                    fs.unlinkSync(lockPath);
+                }
+            } catch {
+                // ignore
+            }
+        } else {
+            if (isServerReady()) {
+                cachedMcpServerPath = serverPath;
+                console.log('[Browser DevTools MCP] Using server installed by another window:', serverPath);
+                return serverPath;
+            }
+        }
+        await new Promise((r) => setTimeout(r, MCP_INSTALL_POLL_INTERVAL_MS));
+    }
+    throw new Error(
+        'Browser DevTools MCP: Install timed out. Another Cursor window may be installing the MCP server; try again in a moment.'
     );
 }
 
@@ -336,11 +459,13 @@ async function installMcpServerCommand(context: vscode.ExtensionContext): Promis
                 if (fs.existsSync(serverPath)) {
                     cachedMcpServerPath = serverPath;
                 }
+                void trackCursorExtMcpInstalled(getExtensionVersion(context), version);
                 void vscode.window.showInformationMessage(
                     `Browser DevTools MCP: Installed browser-devtools-mcp@${version}. Restart the MCP server to use it.`
                 );
             } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+                void trackCursorExtMcpInstallFailed(getExtensionVersion(context), version, msg);
                 showErrorWithIssueLink(
                     `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
                     false,
@@ -544,6 +669,9 @@ class BrowserDevToolsMcpProvider implements vscode.McpServerDefinitionProvider {
 export async function activate(context: vscode.ExtensionContext) {
     extensionPathForDeactivate = context.extensionPath;
     globalStoragePathForDeactivate = context.globalStoragePath;
+    extensionVersionForDeactivate = getExtensionVersion(context);
+
+    syncTelemetryConfigFromVscodeSetting();
 
     // First run or new version: update globalStorage .extension-version and run onInstall() if needed
     await runInstallIfNeeded(context);
@@ -646,6 +774,8 @@ export async function activate(context: vscode.ExtensionContext) {
                     vscode.window.showInformationMessage(
                         'Browser DevTools MCP: Install browsers setting changed. Run **Install MCP Server** to reinstall with the new selection.'
                     );
+                } else if (e.affectsConfiguration(`${CONFIG_PREFIX}.telemetry.enable`)) {
+                    syncTelemetryConfigFromVscodeSetting();
                 } else {
                     if (getCursorMcp() && isExtensionEnabled()) {
                         void (async () => {
@@ -680,6 +810,16 @@ async function onUninstall(): Promise<void> {
         }
     } catch (err) {
         console.error('[Browser DevTools MCP] Failed to remove Cursor rule from ~/.cursor/rules:', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        void trackCursorExtUninstallFailed(extensionVersionForDeactivate, msg);
+    }
+
+    try {
+        await trackCursorExtUninstalled();
+    } catch (err) {
+        console.error('[Browser DevTools MCP] Failed to track cursor extension uninstalled:', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        void trackCursorExtUninstallFailed(extensionVersionForDeactivate, msg);
     }
 }
 

@@ -84,6 +84,11 @@
           "default": true,
           "description": "Enable or disable the Browser DevTools MCP extension"
         },
+        "browserDevtoolsMcp.telemetry.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow sending anonymous install/uninstall telemetry (PostHog). When false, also disables telemetry for the uninstall hook."
+        },
         "browserDevtoolsMcp.browser.headless": {
           "type": "boolean",
           "default": true,

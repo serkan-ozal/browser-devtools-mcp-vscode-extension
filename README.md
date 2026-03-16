@@ -55,6 +55,18 @@ cursor --install-extension browser-devtools-mcp-vscode-x.x.x.vsix
 
 **Registration:** In Cursor the extension registers the MCP server via Cursor’s native MCP API (no `mcp.json` needed). In VS Code 1.96+ it uses `vscode.lm.registerMcpServerDefinitionProvider`. The server is started automatically when the extension is enabled.
 
+## Telemetry
+
+The extension sends anonymous telemetry events to [PostHog](https://posthog.com) (same project as [browser-devtools-mcp](https://www.npmjs.com/package/browser-devtools-mcp)) to understand install and uninstall usage. No PII is collected; only an anonymous ID stored in `~/.browser-devtools-mcp/config.json`, plus event name and environment properties (e.g. extension version, OS, Node version).
+
+- **Events:** `cursor_ext_installed` (when the extension runs on first install or after an upgrade—i.e. when globalStorage `.extension-version` is missing or differs from the current extension version), `cursor_ext_uninstalled` (when the extension is uninstalled and deactivate runs with the extension listed in `.obsolete`—e.g. after “Reload to complete uninstall”), `cursor_ext_mcp_installed` (when the MCP server is successfully installed, e.g. on first activate or via **Install MCP Server**), `cursor_ext_mcp_install_failed` (when npm install of the MCP server fails or the server binary is not found after install). If telemetry is disabled (setting, env, or config), no events are sent.
+
+**How to disable telemetry**
+
+1. **Setting (recommended):** Set `browserDevtoolsMcp.telemetry.enable` to `false` in VS Code/Cursor settings. The extension syncs this to `~/.browser-devtools-mcp/config.json` on activate and when the setting changes, so no telemetry events (including uninstall) are sent.
+2. **Environment variable:** Set `TELEMETRY_ENABLE=false` before starting VS Code/Cursor.
+3. **Config file:** Edit `~/.browser-devtools-mcp/config.json` and set `"telemetryEnabled": false`.
+
 ## MCP Server (runtime install)
 
 The browser-devtools-mcp server is **not bundled** in the extension. It is installed at runtime so native dependencies (e.g. sharp) match your platform.
@@ -97,6 +109,7 @@ Settings below are passed to the MCP server as environment variables. Change the
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `browserDevtoolsMcp.enable` | `true` | Enable or disable the extension (and MCP server) |
+| `browserDevtoolsMcp.telemetry.enable` | `true` | Allow anonymous install/uninstall telemetry (see [Telemetry](#telemetry)) |
 | `browserDevtoolsMcp.platform` | `"browser"` | MCP platform: `browser` (web automation) or `node` (Node.js debugging) |
 
 #### Install (browsers to download when installing MCP server)
