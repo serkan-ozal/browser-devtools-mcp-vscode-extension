@@ -156,7 +156,7 @@ function doMcpServerInstall(installDir: string, version: string): void {
     if (installWebkit) {
         installEnv['BROWSER_DEVTOOLS_INSTALL_WEBKIT'] = 'true';
     }
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const npmCmd = 'npm';
     cp.execSync(`${npmCmd} install browser-devtools-mcp@${version}`, {
         cwd: installDir,
         encoding: 'utf8',
