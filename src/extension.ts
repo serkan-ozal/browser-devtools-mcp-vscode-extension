@@ -15,12 +15,25 @@ const GITHUB_ISSUES_BASE = 'https://github.com/serkan-ozal/browser-devtools-mcp-
 const MCP_SERVER_INSTALL_DIR = 'mcp-server';
 const MCP_SERVER_EXTENSION_VERSION_MARKER = '.extension-version';
 const DEFAULT_MCP_SERVER_VERSION = 'latest';
+
+/** File under globalStorage to track extension version for first-run / upgrade; only one activate runs onInstall. */
+const EXTENSION_VERSION_FILE = '.extension-version';
+
+/** Cursor rule file copied to ~/.cursor/rules/ on install and removed on uninstall. */
+const CURSOR_RULE_FILE_NAME = 'browser-devtools-use.mdc';
+/** How long to show "Cursor rule installed" in the status bar after onInstall. */
+const CURSOR_RULE_STATUS_DURATION_MS = 5000;
+
 /** MCP server name used for Cursor register/unregister and VS Code provider definition. */
 const MCP_SERVER_NAME = 'browser-devtools';
 /** CLI arg added when we start the MCP server so we can identify our processes for kill (avoids killing extension host). */
 const CURSOR_MCP_SERVER_ARG = '--cursor-mcp-server';
 
 let cachedMcpServerPath: string | null = null;
+
+/** Set in activate; deactivate receives no context so we keep these for .obsolete check and runUninstallIfNeeded. */
+let extensionPathForDeactivate: string | null = null;
+let globalStoragePathForDeactivate: string | null = null;
 
 // Map VS Code settings to environment variables
 const SETTINGS_TO_ENV: Record<string, string> = {
@@ -156,6 +169,47 @@ function doMcpServerInstall(installDir: string, version: string): void {
 function getExtensionVersion(context: vscode.ExtensionContext): string {
     const v = context.extension?.packageJSON?.version;
     return typeof v === 'string' ? v : '';
+}
+
+/**
+ * Called once on first install or when extension version changes. Copies Cursor rule to ~/.cursor/rules/ so browser automation uses only this MCP.
+ */
+async function onInstall(context: vscode.ExtensionContext): Promise<void> {
+    try {
+        const source = path.join(context.extensionPath, 'rules', CURSOR_RULE_FILE_NAME);
+        if (!fs.existsSync(source)) {
+            return;
+        }
+        const destDir = path.join(os.homedir(), '.cursor', 'rules');
+        const dest = path.join(destDir, CURSOR_RULE_FILE_NAME);
+        fs.mkdirSync(destDir, { recursive: true });
+        fs.copyFileSync(source, dest);
+        if (statusBarItem) {
+            statusBarItem.text = '$(globe) Browser DevTools · Cursor rule installed';
+            statusBarItem.tooltip = 'Browser DevTools MCP: Cursor rule added to ~/.cursor/rules';
+            setTimeout(() => updateStatusBar(), CURSOR_RULE_STATUS_DURATION_MS);
+        }
+    } catch (err) {
+        console.error('[Browser DevTools MCP] Failed to copy Cursor rule to ~/.cursor/rules:', err);
+    }
+}
+
+/**
+ * If globalStorage .extension-version is missing or differs from current version, write it and call onInstall().
+ * TODO: If multiple windows (separate extension host processes) can activate at once and only one must run onInstall(),
+ * use a file lock: create a .extension-version.lock file with fs.writeFileSync(..., { flag: 'wx' }); only one process succeeds;
+ * others poll until the lock is removed, then re-read .extension-version and skip if already current.
+ */
+async function runInstallIfNeeded(context: vscode.ExtensionContext): Promise<void> {
+    const versionFilePath = path.join(context.globalStoragePath, EXTENSION_VERSION_FILE);
+    const currentVersion = getExtensionVersion(context);
+    const stored = fs.existsSync(versionFilePath) ? fs.readFileSync(versionFilePath, 'utf8').trim() : '';
+    if (stored === currentVersion) {
+        return;
+    }
+    fs.mkdirSync(context.globalStoragePath, { recursive: true });
+    fs.writeFileSync(versionFilePath, currentVersion, 'utf8');
+    await onInstall(context);
 }
 
 /**
@@ -424,105 +478,11 @@ async function registerCursorMcp(): Promise<void> {
     }
 }
 
-/**
- * Find PIDs of node processes that we started (have CURSOR_MCP_SERVER_ARG in command line).
- * Used on extension deactivate / restart to kill only our MCP server processes, not extension host.
- */
-function getPidsOfCursorMcpProcesses(): number[] {
-    const pids: number[] = [];
-    const marker = CURSOR_MCP_SERVER_ARG.toLowerCase();
-    try {
-        const platform = os.platform();
-        if (platform === 'darwin' || platform === 'linux') {
-            const out = cp.execSync('ps -eo pid,args', { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
-            for (const line of out.split('\n')) {
-                const m = line.match(/^\s*(\d+)\s+(.*)/);
-                if (!m) {
-                    continue;
-                }
-                const args = m[2].toLowerCase();
-                if (args.includes(marker)) {
-                    pids.push(parseInt(m[1], 10));
-                }
-            }
-        } else if (platform === 'win32') {
-            const out = cp.execSync('wmic process where "name=\'node.exe\'" get processid,commandline /format:list', {
-                encoding: 'utf8',
-                maxBuffer: 4 * 1024 * 1024,
-                windowsHide: true,
-            });
-            let currentPid: number | null = null;
-            for (const line of out.split(/\r?\n/)) {
-                const pidMatch = line.match(/ProcessId=(\d+)/);
-                if (pidMatch) {
-                    currentPid = parseInt(pidMatch[1], 10);
-                }
-                const cmdMatch = line.match(/CommandLine=(.*)/);
-                if (cmdMatch && currentPid !== null) {
-                    const args = cmdMatch[1].toLowerCase();
-                    if (args.includes(marker)) {
-                        pids.push(currentPid);
-                    }
-                    currentPid = null;
-                }
-            }
-        }
-    } catch (_) {
-        // ignore: ps/wmic may fail in some environments
-    }
-    return pids;
-}
-
-/** Check if a process is still alive (signal 0 = no kill, just check). */
-function isProcessAlive(pid: number): boolean {
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-const KILL_MCP_PROCESSES_TIMEOUT_MS = 30_000;
-const KILL_MCP_PROCESSES_POLL_MS = 200;
 /** Sleep after register/unregister so Cursor can process the change. */
 const REGISTER_UNREGISTER_SLEEP_MS = 3_000;
 
 function sleep(ms: number): Promise<void> {
     return new Promise((r) => setTimeout(r, ms));
-}
-
-/**
- * Kill node processes that run our MCP server and were started from Cursor.
- * Sends SIGTERM then waits until they exit (polling). Timeout 30s; on timeout logs error and continues.
- */
-async function killCursorMcpProcesses(): Promise<void> {
-    const pids = getPidsOfCursorMcpProcesses();
-    for (const pid of pids) {
-        try {
-            process.kill(pid, 'SIGTERM');
-        } catch {
-            // process may already be gone
-        }
-    }
-    if (pids.length === 0) {
-        return;
-    }
-    const deadline = Date.now() + KILL_MCP_PROCESSES_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-        const stillAlive = pids.filter((pid) => isProcessAlive(pid));
-        if (stillAlive.length === 0) {
-            return;
-        }
-        await new Promise((r) => setTimeout(r, KILL_MCP_PROCESSES_POLL_MS));
-    }
-    const stillAlive = pids.filter((pid) => isProcessAlive(pid));
-    if (stillAlive.length > 0) {
-        console.error(
-            `[Browser DevTools MCP] Timeout (${KILL_MCP_PROCESSES_TIMEOUT_MS / 1000}s) waiting for MCP processes to exit. PIDs still alive:`,
-            stillAlive
-        );
-    }
 }
 
 /**
@@ -582,6 +542,12 @@ class BrowserDevToolsMcpProvider implements vscode.McpServerDefinitionProvider {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+    extensionPathForDeactivate = context.extensionPath;
+    globalStoragePathForDeactivate = context.globalStoragePath;
+
+    // First run or new version: update globalStorage .extension-version and run onInstall() if needed
+    await runInstallIfNeeded(context);
+
     // before status bar uses it
     context.subscriptions.push(vscode.commands.registerCommand('browserDevtoolsMcp.toggleExtension', toggleExtension));
 
@@ -597,14 +563,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Register MCP: Cursor uses cursor.mcp.registerServer; VS Code uses lm.registerMcpServerDefinitionProvider (VS Code 1.96+).
     if (isCursor()) {
-        await unregisterCursorMcp();
-        // Kill any lingering MCP processes from a previous run, wait for them to exit, then register (same as Restart Server).
-        await killCursorMcpProcesses();
         await registerCursorMcp();
-        // Extension host kapanınca (Cursor kapanınca veya reload) MCP process'lerini de sonlandır.
-        process.once('exit', async () => {
-            await killCursorMcpProcesses();
-        });
     } else if (vscode.lm?.registerMcpServerDefinitionProvider) {
         const mcpProvider = new BrowserDevToolsMcpProvider(context.extensionPath);
         const mcpDisposable = vscode.lm.registerMcpServerDefinitionProvider('browser-devtools-mcp', mcpProvider);
@@ -643,7 +602,6 @@ export async function activate(context: vscode.ExtensionContext) {
             if (isExtensionEnabled()) {
                 if (getCursorMcp()) {
                     await unregisterCursorMcp();
-                    await killCursorMcpProcesses();
                     await registerCursorMcp();
                     void vscode.window.showInformationMessage('Browser DevTools MCP: Server restarted.');
                 } else {
@@ -674,7 +632,6 @@ export async function activate(context: vscode.ExtensionContext) {
                         } else {
                             void (async () => {
                                 await unregisterCursorMcp();
-                                await killCursorMcpProcesses();
                             })();
                         }
                     }
@@ -693,7 +650,6 @@ export async function activate(context: vscode.ExtensionContext) {
                     if (getCursorMcp() && isExtensionEnabled()) {
                         void (async () => {
                             await unregisterCursorMcp();
-                            await killCursorMcpProcesses();
                             await registerCursorMcp();
                         })();
                     }
@@ -708,8 +664,69 @@ export async function activate(context: vscode.ExtensionContext) {
     console.log('Browser DevTools MCP extension activated successfully');
 }
 
+/**
+ * Called when this process successfully deleted .extension-version in runUninstallIfNeeded (so only one process calls it when many deactivate concurrently).
+ */
+async function onUninstall(): Promise<void> {
+    try {
+        const rulePath = path.join(os.homedir(), '.cursor', 'rules', CURSOR_RULE_FILE_NAME);
+        if (!fs.existsSync(rulePath)) {
+            return;
+        }
+        fs.unlinkSync(rulePath);
+        if (statusBarItem) {
+            statusBarItem.text = '$(globe) Browser DevTools · Cursor rule removed';
+            statusBarItem.tooltip = 'Browser DevTools MCP: Cursor rule removed from ~/.cursor/rules';
+        }
+    } catch (err) {
+        console.error('[Browser DevTools MCP] Failed to remove Cursor rule from ~/.cursor/rules:', err);
+    }
+}
+
+/**
+ * Try to delete globalStorage .extension-version; only the process that succeeds calls onUninstall(), so concurrent deactivates (e.g. multiple windows) result in a single onUninstall().
+ */
+async function runUninstallIfNeeded(): Promise<void> {
+    if (!globalStoragePathForDeactivate) {
+        return;
+    }
+    const versionFilePath = path.join(globalStoragePathForDeactivate, EXTENSION_VERSION_FILE);
+    if (!fs.existsSync(versionFilePath)) {
+        return;
+    }
+    try {
+        fs.unlinkSync(versionFilePath);
+    } catch (err) {
+        const code = err && typeof err === 'object' && 'code' in err ? (err as NodeJS.ErrnoException).code : '';
+        if (code === 'ENOENT') {
+            return;
+        }
+        throw err;
+    }
+    await onUninstall();
+}
+
 export async function deactivate(): Promise<void> {
     await unregisterCursorMcp();
-    await killCursorMcpProcesses();
     console.log('Browser DevTools MCP extension deactivated');
+
+    // If we're in .obsolete, host is uninstalling us; runUninstallIfNeeded (only one process calls onUninstall when many deactivate).
+    if (extensionPathForDeactivate) {
+        try {
+            const extensionsDir = path.dirname(extensionPathForDeactivate);
+            const obsoletePath = path.join(extensionsDir, '.obsolete');
+            const folderName = path.basename(extensionPathForDeactivate);
+            if (fs.existsSync(obsoletePath)) {
+                const content = fs.readFileSync(obsoletePath, 'utf8').trim();
+                const obsolete: Record<string, boolean> = content
+                    ? (JSON.parse(content) as Record<string, boolean>)
+                    : {};
+                if (obsolete[folderName] === true) {
+                    await runUninstallIfNeeded();
+                }
+            }
+        } catch {
+            /* non-fatal */
+        }
+    }
 }

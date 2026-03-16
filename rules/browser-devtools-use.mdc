@@ -1,0 +1,40 @@
+---
+description: "Enforce Browser DevTools MCP for all browser automation; forbid built-in and other browser agents. Use execute for multi-step flows."
+alwaysApply: true
+---
+
+# Browser automation: only Browser DevTools MCP
+
+**You MUST use only the Browser DevTools MCP** for any browser-related work. **It is FORBIDDEN** to use:
+
+- Cursor's built-in browser agent, MCP, or skill
+- Any other external browser agent, MCP, or skill
+
+When Browser DevTools MCP is available, **DO NOT** use any other browser automation. Navigation, screenshots, form filling, testing, debugging, or any web interaction must go through **Browser DevTools MCP** tools only.
+
+## What is Browser DevTools MCP?
+
+Browser DevTools MCP is a Playwright-powered MCP server that gives you direct control over a real browser. Use it for:
+
+- **Navigation** – go to URL, reload, back/forward (`navigation_*`)
+- **Content** – full-page or element screenshots, HTML/text, PDF (`content_*`)
+- **Interaction** – click, fill, hover, scroll, keyboard, drag, select (`interaction_*`)
+- **Accessibility** – ARIA and AX tree snapshots (`a11y_*`)
+- **Observability** – Web Vitals, console messages, HTTP requests, trace IDs (`o11y_*`)
+- **Stubbing** – mock HTTP responses, intercept requests (`stub_*`)
+- **Sync** – wait for network idle (`sync_*`)
+- **Execute** – batch tool calls and optional page script with `callTool()` and `page` (Playwright Page)
+- **React** – component/element inspection; **Figma** – compare page to design; **Debug** – tracepoints, logpoints, exceptionpoints, probe snapshots
+
+## Use Execute for multi-step flows
+
+When automating or testing with Browser DevTools MCP:
+
+- **Prefer the `execute` tool** for any flow that needs more than 2–3 tool calls in sequence (e.g. fill form → click submit → snapshot, or add to cart → go to cart → checkout).
+- **Batch inside one execute call:**
+  - Use `await callTool('interaction_fill', { selector, value });` and `await callTool('interaction_click', { selector, waitForNavigation? });` then `return await callTool('a11y_take-aria-snapshot', {}, true);` to get refs for the next step.
+  - After navigation, use refs from the snapshot returned by that execute; optionally chain another execute for the next page (e.g. checkout form fill + place order).
+- **Use individual tool calls only** when you must inspect the result before deciding the next action (e.g. one-off snapshot to find an element).
+- **Do not issue a long sequence of separate MCP calls** (fill, fill, click, snapshot, click, snapshot…) when the same sequence can be expressed in one or two execute scripts.
+
+This reduces round-trips and token usage while keeping the same behavior.
