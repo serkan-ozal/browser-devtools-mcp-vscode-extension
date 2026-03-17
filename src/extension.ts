@@ -204,18 +204,31 @@ function resolveNpmPath(): string | null {
     }
 }
 
+/** Quote npm path for Windows shell so paths with spaces (e.g. C:\Program Files\...) are not split. */
+function quotedNpmPathForWindowsShell(npmPath: string): string {
+    return `"${npmPath.replace(/"/g, '\\"')}"`;
+}
+
 /**
  * Run npm with the given args. Uses resolved npm path if available (avoids PATH issues when Cursor is launched from GUI).
  * Falls back to "npm" with shell: true so the system shell's PATH is used. Throws on failure.
+ * On Windows, runs npm via shell with quoted path so paths with spaces (e.g. Program Files) work.
  */
 function runNpm(cwd: string, env: Record<string, string>, args: string[], options: { timeout?: number } = {}): void {
     const { timeout = 60_000 } = options;
     const npmPath = resolveNpmPath();
     const opts = { cwd, encoding: 'utf8' as const, timeout, stdio: 'pipe' as const, env };
     if (npmPath) {
-        // On Windows, .cmd/.bat must run via shell or spawnSync returns EINVAL
-        const execFileOpts = process.platform === 'win32' ? { ...opts, shell: true } : opts;
-        cp.execFileSync(npmPath, args, execFileOpts);
+        if (process.platform === 'win32') {
+            // Windows: .cmd/.bat need shell, and path must be quoted so "C:\Program Files\..." is not split
+            cp.execSync(`${quotedNpmPathForWindowsShell(npmPath)} ${args.join(' ')}`, {
+                ...opts,
+                shell: true,
+            } as unknown as cp.ExecSyncOptionsWithStringEncoding);
+        } else {
+            // macOS/Linux: run directly, no shell; path with spaces is passed correctly as single argv
+            cp.execFileSync(npmPath, args, opts);
+        }
     } else {
         // shell: true uses system shell PATH; @types/node ExecOptions has shell?: string but runtime accepts boolean
         cp.execSync(`npm ${args.join(' ')}`, {
@@ -238,9 +251,15 @@ function runNpmWithOutput(
     const npmPath = resolveNpmPath();
     const opts = { cwd, encoding: 'utf8' as const, timeout, stdio: 'pipe' as const, env };
     if (npmPath) {
-        // On Windows, .cmd/.bat must run via shell or spawnSync returns EINVAL
-        const execFileOpts = process.platform === 'win32' ? { ...opts, shell: true } : opts;
-        return cp.execFileSync(npmPath, args, execFileOpts) as string;
+        if (process.platform === 'win32') {
+            // Windows: .cmd/.bat need shell, and path must be quoted so "C:\Program Files\..." is not split
+            return cp.execSync(`${quotedNpmPathForWindowsShell(npmPath)} ${args.join(' ')}`, {
+                ...opts,
+                shell: true,
+            } as unknown as cp.ExecSyncOptionsWithStringEncoding);
+        }
+        // macOS/Linux: run directly, no shell; path with spaces is passed correctly as single argv
+        return cp.execFileSync(npmPath, args, opts) as string;
     }
     // shell: true uses system shell PATH; @types/node ExecOptions has shell?: string but runtime accepts boolean
     return cp.execSync(`npm ${args.join(' ')}`, {
