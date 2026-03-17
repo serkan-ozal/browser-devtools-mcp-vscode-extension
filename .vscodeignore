@@ -9,5 +9,9 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 !dist/**
-# MCP server installed at runtime (ensureMcpServerInstalled) so no need to bundle node_modules
+# Exclude all node_modules except runtime deps (which + isexe) needed for npm resolution.
 node_modules/**
+!node_modules/which/
+!node_modules/which/**
+!node_modules/isexe/
+!node_modules/isexe/**

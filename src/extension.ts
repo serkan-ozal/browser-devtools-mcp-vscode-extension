@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import which from 'which';
 import { SettingsWebviewProvider } from './settingsWebview';
 import {
     trackCursorExtInstallFailed,
@@ -183,6 +184,94 @@ function releaseMcpInstallLock(context: vscode.ExtensionContext): void {
     }
 }
 
+/** Hint shown when npm is not found (PATH / GUI launch). Covers macOS, Linux, Windows. */
+const NPM_NOT_FOUND_HINT =
+    'npm was not found. This often happens when Cursor was opened from the dock/taskbar instead of a terminal. ' +
+    'Try opening Cursor from a terminal (e.g. run "cursor ." from a folder). ' +
+    'On macOS, add PATH for GUI apps by editing /etc/paths and restarting Finder. ' +
+    'On Linux, ensure Node/npm are in PATH or launch from a terminal. ' +
+    'On Windows, ensure Node.js is installed and its folder is in System PATH.';
+
+/**
+ * Resolve npm executable path from PATH (so we can run it even when extension host env is limited).
+ * Uses the same logic as npm (which package). Returns null if npm is not found.
+ */
+function resolveNpmPath(): string | null {
+    try {
+        return which.sync('npm', { nothrow: true }) ?? null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Run npm with the given args. Uses resolved npm path if available (avoids PATH issues when Cursor is launched from GUI).
+ * Falls back to "npm" with shell: true so the system shell's PATH is used. Throws on failure.
+ */
+function runNpm(cwd: string, env: Record<string, string>, args: string[], options: { timeout?: number } = {}): void {
+    const { timeout = 60_000 } = options;
+    const npmPath = resolveNpmPath();
+    const opts = { cwd, encoding: 'utf8' as const, timeout, stdio: 'pipe' as const, env };
+    if (npmPath) {
+        cp.execFileSync(npmPath, args, opts);
+    } else {
+        // shell: true uses system shell PATH; @types/node ExecOptions has shell?: string but runtime accepts boolean
+        cp.execSync(`npm ${args.join(' ')}`, {
+            ...opts,
+            shell: true,
+        } as unknown as cp.ExecSyncOptionsWithStringEncoding);
+    }
+}
+
+/**
+ * Run npm and return stdout. Same resolution as runNpm (resolve path or shell: true). Throws on failure.
+ */
+function runNpmWithOutput(
+    cwd: string,
+    env: Record<string, string>,
+    args: string[],
+    options: { timeout?: number } = {}
+): string {
+    const { timeout = 60_000 } = options;
+    const npmPath = resolveNpmPath();
+    const opts = { cwd, encoding: 'utf8' as const, timeout, stdio: 'pipe' as const, env };
+    if (npmPath) {
+        return cp.execFileSync(npmPath, args, opts) as string;
+    }
+    // shell: true uses system shell PATH; @types/node ExecOptions has shell?: string but runtime accepts boolean
+    return cp.execSync(`npm ${args.join(' ')}`, {
+        ...opts,
+        shell: true,
+    } as unknown as cp.ExecSyncOptionsWithStringEncoding);
+}
+
+/** True if the error looks like npm/node not found (command not found, not recognized, ENOENT). */
+function isNpmNotFoundError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err);
+    const stderr = (err as { stderr?: Buffer | string }).stderr;
+    const stderrStr = typeof stderr === 'string' ? stderr : (stderr?.toString?.() ?? '');
+    const combined = `${msg} ${stderrStr}`.toLowerCase();
+    return (
+        combined.includes('command not found') ||
+        combined.includes('not found') ||
+        combined.includes('is not recognized as an internal or external command') ||
+        combined.includes('npm: command not found') ||
+        combined.includes('node: command not found') ||
+        combined.includes("'npm' is not recognized") ||
+        combined.includes("'node' is not recognized") ||
+        combined.includes('enoent') ||
+        /spawn\s+.*\s+enoent/i.test(combined)
+    );
+}
+
+/** User-facing install error message; appends NPM_NOT_FOUND_HINT when the error indicates npm was not found. */
+function getInstallErrorMessage(baseMessage: string, err: unknown): string {
+    if (isNpmNotFoundError(err)) {
+        return `${baseMessage}\n\n${NPM_NOT_FOUND_HINT}`;
+    }
+    return baseMessage;
+}
+
 /**
  * Run npm install browser-devtools-mcp@version in installDir. Throws on failure.
  * Env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 so Playwright's postinstall skips; BROWSER_DEVTOOLS_INSTALL_* from settings
@@ -211,14 +300,7 @@ function doMcpServerInstall(installDir: string, version: string): void {
     if (installWebkit) {
         installEnv['BROWSER_DEVTOOLS_INSTALL_WEBKIT'] = 'true';
     }
-    const npmCmd = 'npm';
-    cp.execSync(`${npmCmd} install browser-devtools-mcp@${version}`, {
-        cwd: installDir,
-        encoding: 'utf8',
-        timeout: 300_000,
-        stdio: 'pipe',
-        env: installEnv,
-    });
+    runNpm(installDir, installEnv, ['install', `browser-devtools-mcp@${version}`], { timeout: 300_000 });
 }
 
 function getExtensionVersion(context: vscode.ExtensionContext): string {
@@ -351,7 +433,10 @@ async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promi
                         console.error('[Browser DevTools MCP] npm install failed:', msg);
                         void trackCursorExtMcpInstallFailed(currentVersion, DEFAULT_MCP_SERVER_VERSION, msg);
                         showErrorWithIssueLink(
-                            `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
+                            getInstallErrorMessage(
+                                `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
+                                err
+                            ),
                             false,
                             err
                         );
@@ -362,7 +447,10 @@ async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promi
                         void trackCursorExtMcpInstallFailed(currentVersion, DEFAULT_MCP_SERVER_VERSION, msg);
                         const err = new Error(msg);
                         showErrorWithIssueLink(
-                            `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
+                            getInstallErrorMessage(
+                                `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
+                                err
+                            ),
                             false,
                             err
                         );
@@ -418,8 +506,8 @@ async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promi
 async function installMcpServerCommand(context: vscode.ExtensionContext): Promise<void> {
     let versions: string[] = [];
     try {
-        const out = cp.execSync('npm view browser-devtools-mcp versions --json', {
-            encoding: 'utf8',
+        const env = process.env as Record<string, string>;
+        const out = runNpmWithOutput(process.cwd(), env, ['view', 'browser-devtools-mcp', 'versions', '--json'], {
             timeout: 15_000,
         });
         const parsed = JSON.parse(out.trim()) as string[];
@@ -467,7 +555,10 @@ async function installMcpServerCommand(context: vscode.ExtensionContext): Promis
                 const msg = err instanceof Error ? err.message : String(err);
                 void trackCursorExtMcpInstallFailed(getExtensionVersion(context), version, msg);
                 showErrorWithIssueLink(
-                    `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
+                    getInstallErrorMessage(
+                        `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
+                        err
+                    ),
                     false,
                     err
                 );

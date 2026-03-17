@@ -286,6 +286,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@types/which": "^3.0.0",
     "@types/vscode": "^1.96.0",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
@@ -295,5 +296,7 @@
     "release-it": "^17.0.0",
     "typescript": "^5.3.3"
   },
-  "dependencies": {}
+  "dependencies": {
+    "which": "^4.0.0"
+  }
 }
