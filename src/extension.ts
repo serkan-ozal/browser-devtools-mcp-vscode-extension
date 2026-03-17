@@ -213,7 +213,9 @@ function runNpm(cwd: string, env: Record<string, string>, args: string[], option
     const npmPath = resolveNpmPath();
     const opts = { cwd, encoding: 'utf8' as const, timeout, stdio: 'pipe' as const, env };
     if (npmPath) {
-        cp.execFileSync(npmPath, args, opts);
+        // On Windows, .cmd/.bat must run via shell or spawnSync returns EINVAL
+        const execFileOpts = process.platform === 'win32' ? { ...opts, shell: true } : opts;
+        cp.execFileSync(npmPath, args, execFileOpts);
     } else {
         // shell: true uses system shell PATH; @types/node ExecOptions has shell?: string but runtime accepts boolean
         cp.execSync(`npm ${args.join(' ')}`, {
@@ -236,7 +238,9 @@ function runNpmWithOutput(
     const npmPath = resolveNpmPath();
     const opts = { cwd, encoding: 'utf8' as const, timeout, stdio: 'pipe' as const, env };
     if (npmPath) {
-        return cp.execFileSync(npmPath, args, opts) as string;
+        // On Windows, .cmd/.bat must run via shell or spawnSync returns EINVAL
+        const execFileOpts = process.platform === 'win32' ? { ...opts, shell: true } : opts;
+        return cp.execFileSync(npmPath, args, execFileOpts) as string;
     }
     // shell: true uses system shell PATH; @types/node ExecOptions has shell?: string but runtime accepts boolean
     return cp.execSync(`npm ${args.join(' ')}`, {
