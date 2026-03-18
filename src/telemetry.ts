@@ -219,7 +219,7 @@ export async function trackCursorExtMcpInstallFailed(
 /**
  * Send cursor_ext_uninstalled. Await in deactivate when .obsolete indicates uninstall so request completes before process exits.
  */
-export async function trackCursorExtUninstalled(): Promise<void> {
+export async function trackCursorExtUninstalled(extensionVersion: string): Promise<void> {
     if (!isTelemetryEnabled()) {
         return;
     }
@@ -235,15 +235,7 @@ export async function trackCursorExtUninstalled(): Promise<void> {
     if (!config.anonymousId || config.telemetryEnabled === false) {
         return;
     }
-    const properties = {
-        source: 'cursor-ext',
-        node_version: process.version,
-        os_platform: process.platform,
-        os_arch: process.arch,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        timestamp: new Date().toISOString(),
-    };
-    await captureEvent('cursor_ext_uninstalled', config.anonymousId, properties);
+    await captureEvent('cursor_ext_uninstalled', config.anonymousId, buildBaseProperties(extensionVersion));
 }
 
 /**

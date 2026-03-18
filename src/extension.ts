@@ -929,7 +929,7 @@ async function onUninstall(): Promise<void> {
     }
 
     try {
-        await trackCursorExtUninstalled();
+        await trackCursorExtUninstalled(extensionVersionForDeactivate || '0.0.0');
     } catch (err) {
         console.error('[Browser DevTools MCP] Failed to track cursor extension uninstalled:', err);
         const msg = err instanceof Error ? err.message : String(err);
