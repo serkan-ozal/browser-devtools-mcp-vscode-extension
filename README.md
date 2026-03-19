@@ -22,7 +22,7 @@ This extension integrates [browser-devtools-mcp](https://www.npmjs.com/package/b
 - 🐛 **Non-Blocking Debugging** - Tracepoints, logpoints, exceptionpoints, watch expressions, probe snapshots
 - ⚡ **Execute** - Batch multiple tool calls in one request via JavaScript and `callTool()`; on browser platform `page` (Playwright Page) is available for `page.evaluate()`, `page.locator()`, etc.
 - 🌐 **Playwright Browsers** - On activate, the extension downloads the browsers selected in settings (default: Chromium + headless shell + ffmpeg) into Playwright’s normal cache using `playwright-core`’s installer—no `npx` required. VSIX builds set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` so binaries are not bundled. Run **Browser DevTools MCP: Install Playwright Browsers...** anytime to pick Chromium (default), Firefox, and/or WebKit: it updates `install.chromium` / `install.firefox` / `install.webkit` to match and downloads those engines.
-- 📦 **MCP Server** - Shipped **inside the VSIX** per OS/arch (platform-specific packages). No npm required at runtime; the extension runs the bundled `browser-devtools-mcp` with `node`.
+- 📦 **MCP Server** - Shipped **inside one universal VSIX** (same artifact for all platforms). **sharp** runs via **WASM** (`@img/sharp-wasm32`); native sharp/libvips prebuilds are pruned before packaging. No npm required at runtime; the extension runs the bundled `browser-devtools-mcp` with `node`.
 
 ## Installation
 
@@ -70,22 +70,25 @@ The extension can send **anonymous** usage events (install/uninstall, browser in
 
 ## MCP Server (bundled)
 
-The `browser-devtools-mcp` package is a **dependency of this extension** and is included in the published VSIX with production `node_modules` (native modules such as **sharp** are built for each target in CI). Open VSX / the marketplace serves the correct VSIX for your platform (e.g. `darwin-arm64`, `linux-x64`).
+The `browser-devtools-mcp` package is a **dependency of this extension** and is included in the published VSIX with production `node_modules`. We publish a **single universal VSIX** where native sharp/libvips prebuild packages are excluded from the bundle and `@img/sharp-wasm32` is included. At runtime, `sharp` can use native if available in the host environment; otherwise it falls back to WASM. CI uses `npm ci --omit=optional`, upgrades **`browser-devtools-mcp@latest`**, verifies `sharp.versions.emscripten`, then packages **`universal.vsix`**. **`@img/sharp-wasm32`** is a direct extension dependency (sharp aligns to `0.34.5`) and **`.npmrc`** sets `force=true` so npm installs it on normal hosts.
 
 - **Activate:** The extension resolves `node_modules/browser-devtools-mcp/dist/index.js` inside the extension folder. No npm and no network required for the server binary itself.
-- **New server versions:** Install a newer **extension** release from the marketplace (or VSIX); the bundled `browser-devtools-mcp` version tracks the extension build.
-- **Dependency range:** `browser-devtools-mcp` is declared as `>=0.5.0 <1.0.0` in `package.json` for maintainers building the VSIX; end users do not run npm for MCP.
+- **New server versions:** CI and local builds can pull **`browser-devtools-mcp@latest`** before packaging; end users still get versions bundled into the VSIX they install.
+- **Dependencies:** `browser-devtools-mcp: latest` and `@img/sharp-wasm32` (pinned) in `package.json` for maintainers; end users do not run npm for MCP.
 
-### Maintainer: platform VSIX build
+### Maintainer: universal VSIX (native-if-available, WASM fallback)
 
-- **PR / CI:** [.github/workflows/build.yml](.github/workflows/build.yml) — lint plus the same nine-target matrix **package** step (validates `vsce package` per platform; no artifact upload, no publish).
-- **Release / Open VSX:** [.github/workflows/publish-vscode-extension.yml](.github/workflows/publish-vscode-extension.yml) — job **`release`** (version bump, tag, GitHub release on `ubuntu-latest`), then **`package-vsix`** matrix matching [vscode-platform-specific-sample](https://github.com/microsoft/vscode-platform-specific-sample/blob/main/.github/workflows/ci.yml): **win32** (x64, arm64), **linux** (x64, arm64, armhf), **alpine** (x64, arm64), **darwin** (x64, arm64). Each leg checks out the new tag, runs `npm ci` with `npm_config_arch`, and `vsce package --target <platform>-<arch>`. Matrix uses **`fail-fast: false`** so one failing platform does not cancel the others; the matrix job still fails if any leg fails, so **`publish-openvsx`** does not run unless all nine packages succeed. **`publish-openvsx`** downloads the `vsix-*` artifacts and publishes each file with [HaaLeo/publish-vscode-extension@v2](https://github.com/HaaLeo/publish-vscode-extension) (`skipDuplicate: true`). `vsce` collects production dependencies via `npm list --production`, so devDependencies are not bundled.
-- **win32-arm64 vs `npm_config_arch`:** Use **`arm64`** for that matrix row (Windows on ARM is 64-bit). Using **`arm`** can make `npm ci` fail on Windows ARM runners because optional native tooling is published for `win32-arm64`, not `win32-arm`.
+- **PR / CI:** [.github/workflows/build.yml](.github/workflows/build.yml) — lint, then on `ubuntu-latest`: `npm ci --omit=optional`, `npm install --omit=optional browser-devtools-mcp@latest`, inline WASM-check (`sharp.versions.emscripten` + tiny resize), `npx vsce package -o universal.vsix`.
+- **Release / Open VSX:** [.github/workflows/publish-vscode-extension.yml](.github/workflows/publish-vscode-extension.yml) — job **`release`** (version bump, tag, GitHub release), then **`package-vsix`** (same install → inline verify → `universal.vsix`), artifact **`vsix-universal`**. **`publish-openvsx`** downloads that artifact and publishes **`flat/universal.vsix`** once with [HaaLeo/publish-vscode-extension@v2](https://github.com/HaaLeo/publish-vscode-extension) (`skipDuplicate: true`).
+- **Packaging filter:** `.vscodeignore` excludes `@img/sharp-darwin-*`, `@img/sharp-win32-*`, `@img/sharp-linux-*`, `@img/sharp-libvips-*` and keeps `sharp` + `@img/sharp-wasm32`. `vsce` collects production dependencies via `npm list --production`, so devDependencies are not bundled.
 
-Local packaging check (one target):
+Local packaging check:
 
 ```bash
-npx @vscode/vsce package --target linux-x64 -o /tmp/test.vsix
+npm ci --omit=optional
+npm install --omit=optional browser-devtools-mcp@latest
+node --input-type=module -e "import sharp from 'sharp'; console.log(sharp.versions)"
+npx vsce package -o universal.vsix
 ```
 
 ## Playwright Browsers

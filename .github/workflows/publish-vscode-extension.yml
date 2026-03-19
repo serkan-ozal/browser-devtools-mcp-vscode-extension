@@ -1,9 +1,5 @@
 name: Publish VS Code Extension
 
-concurrency:
-  group: publish-vscode-extension-${{ github.repository }}
-  cancel-in-progress: false
-
 on:
   workflow_dispatch:
     inputs:
@@ -23,16 +19,14 @@ env:
 jobs:
   release:
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.meta.outputs.tag }}
     permissions:
       contents: write
     steps:
-      - name: Check out repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_ACCESS_TOKEN }}
-      - name: Configure Git user
+      - name: Configure Git User
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
@@ -41,166 +35,35 @@ jobs:
         with:
           node-version: "22"
           registry-url: https://registry.npmjs.org
-      - name: Install dependencies
-        run: npm ci
-      - name: Lint check
+      - name: Install Dependencies
+        run: npm ci --omit=optional
+      - name: Lint Check
         run: npm run lint:check
-      - name: Build extension
+      - name: Build Extension
         run: npm run build
-      - name: Release (version bump + tag + GitHub release)
+      - name: Release (Version Bump + Tag + GitHub Release)
         run: npm run release:${{ github.event.inputs.version_scale }}
         env:
           GITHUB_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
           NODE_DEBUG: release-it:*
-      - name: Export release tag
-        id: meta
-        run: |
-          version="$(node -p "require('./package.json').version")"
-          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
-
-  # Package only. fail-fast: false → one platform failing does not cancel the rest (artifacts still useful).
-  # The whole job still fails if any matrix leg fails → publish-openvsx does not run (all packages or no publish).
-  package-vsix:
-    needs: release
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            platform: win32
-            arch: x64
-            npm_config_arch: x64
-          - os: windows-latest
-            platform: win32
-            arch: arm64
-            npm_config_arch: arm64
-          - os: ubuntu-latest
-            platform: linux
-            arch: x64
-            npm_config_arch: x64
-          - os: ubuntu-latest
-            platform: linux
-            arch: arm64
-            npm_config_arch: arm64
-          - os: ubuntu-latest
-            platform: linux
-            arch: armhf
-            npm_config_arch: arm
-          - os: ubuntu-latest
-            platform: alpine
-            arch: x64
-            npm_config_arch: x64
-          - os: ubuntu-latest
-            platform: alpine
-            arch: arm64
-            npm_config_arch: arm64
-          - os: macos-latest
-            platform: darwin
-            arch: x64
-            npm_config_arch: x64
-          - os: macos-latest
-            platform: darwin
-            arch: arm64
-            npm_config_arch: arm64
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - name: Publish to Open VSX Registry
+        uses: HaaLeo/publish-vscode-extension@v2
+        id: publishToOpenVSX
         with:
-          ref: ${{ needs.release.outputs.tag }}
-          fetch-depth: 1
-          token: ${{ secrets.GH_ACCESS_TOKEN }}
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-      - name: NPM install
-        run: npm ci
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          npm_config_arch: ${{ matrix.npm_config_arch }}
-      - name: Set VSCE target
-        shell: pwsh
-        run: echo "target=${{ matrix.platform }}-${{ matrix.arch }}" >> $env:GITHUB_ENV
-      - name: Package VSIX (platform-specific)
-        run: npx vsce package --target ${{ env.target }} -o ${{ env.target }}.vsix
-      - name: Upload VSIX artifact
+          pat: ${{ secrets.OPEN_VSX_TOKEN }}
+          skipDuplicate: true
+      # Disable Visual Studio Marketplace publish temporarily until account issue is resolved
+      # - name: Publish to Visual Studio Marketplace
+      #   uses: HaaLeo/publish-vscode-extension@v2
+      #   id: publishToVSMarketplace
+      #   with:
+      #     pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
+      #     skipDuplicate: true
+      #     registryUrl: https://marketplace.visualstudio.com
+      #     extensionFile: ${{ steps.publishToOpenVSX.outputs.vsixPath }}
+      - name: Upload VSIX Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vsix-${{ env.target }}
-          path: ${{ env.target }}.vsix
-          retention-days: 60
-
-  # Runs only if every package-vsix matrix leg succeeded → Open VSX publish is all-or-nothing vs packaging.
-  publish-openvsx:
-    needs: [release, package-vsix]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Download all VSIX artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: vsix-all
-          pattern: vsix-*
-          merge-multiple: true
-      - name: Flatten and verify artifact count
-        run: |
-          set -euo pipefail
-          mkdir -p flat
-          find vsix-all -name '*.vsix' -exec cp -t flat {} +
-          mapfile -t files < <(find flat -maxdepth 1 -name '*.vsix' | sort)
-          expected=9
-          if [ "${#files[@]}" -ne "$expected" ]; then
-            echo "::error::Expected $expected .vsix files (all package matrix legs must succeed), got ${#files[@]}"
-            exit 1
-          fi
-      # Targets must match package-vsix matrix (platform-arch).
-      - uses: HaaLeo/publish-vscode-extension@v2
-        with:
-          pat: ${{ secrets.OPEN_VSX_TOKEN }}
-          extensionFile: flat/win32-x64.vsix
-          skipDuplicate: true
-      - uses: HaaLeo/publish-vscode-extension@v2
-        with:
-          pat: ${{ secrets.OPEN_VSX_TOKEN }}
-          extensionFile: flat/win32-arm64.vsix
-          skipDuplicate: true
-      - uses: HaaLeo/publish-vscode-extension@v2
-        with:
-          pat: ${{ secrets.OPEN_VSX_TOKEN }}
-          extensionFile: flat/linux-x64.vsix
-          skipDuplicate: true
-      - uses: HaaLeo/publish-vscode-extension@v2
-        with:
-          pat: ${{ secrets.OPEN_VSX_TOKEN }}
-          extensionFile: flat/linux-arm64.vsix
-          skipDuplicate: true
-      - uses: HaaLeo/publish-vscode-extension@v2
-        with:
-          pat: ${{ secrets.OPEN_VSX_TOKEN }}
-          extensionFile: flat/linux-armhf.vsix
-          skipDuplicate: true
-      - uses: HaaLeo/publish-vscode-extension@v2
-        with:
-          pat: ${{ secrets.OPEN_VSX_TOKEN }}
-          extensionFile: flat/alpine-x64.vsix
-          skipDuplicate: true
-      - uses: HaaLeo/publish-vscode-extension@v2
-        with:
-          pat: ${{ secrets.OPEN_VSX_TOKEN }}
-          extensionFile: flat/alpine-arm64.vsix
-          skipDuplicate: true
-      - uses: HaaLeo/publish-vscode-extension@v2
-        with:
-          pat: ${{ secrets.OPEN_VSX_TOKEN }}
-          extensionFile: flat/darwin-x64.vsix
-          skipDuplicate: true
-      - uses: HaaLeo/publish-vscode-extension@v2
-        with:
-          pat: ${{ secrets.OPEN_VSX_TOKEN }}
-          extensionFile: flat/darwin-arm64.vsix
-          skipDuplicate: true
+          name: browser-devtools-mcp-vscode.vsix
+          path: ${{ steps.publishToOpenVSX.outputs.vsixPath }}
+          retention-days: 30

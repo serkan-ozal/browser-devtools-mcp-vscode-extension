@@ -24,3 +24,13 @@ node_modules/**/docs/**
 node_modules/**/CHANGELOG*
 node_modules/**/LICENSE*
 node_modules/**/examples/**
+
+# Universal VSIX: exclude native sharp/libvips prebuild variants.
+**/node_modules/@img/sharp-darwin-*/**
+**/node_modules/@img/sharp-win32-*/**
+**/node_modules/@img/sharp-linux-*/**
+**/node_modules/@img/sharp-libvips-*/**
+
+# Keep sharp core + wasm package in the VSIX.
+!**/node_modules/sharp/**
+!**/node_modules/@img/sharp-wasm32/**
