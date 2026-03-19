@@ -21,8 +21,8 @@ This extension integrates [browser-devtools-mcp](https://www.npmjs.com/package/b
 - 🎨 **Figma Comparison** - Compare pages with Figma designs
 - 🐛 **Non-Blocking Debugging** - Tracepoints, logpoints, exceptionpoints, watch expressions, probe snapshots
 - ⚡ **Execute** - Batch multiple tool calls in one request via JavaScript and `callTool()`; on browser platform `page` (Playwright Page) is available for `page.evaluate()`, `page.locator()`, etc.
-- 🌐 **Playwright Browsers** - When the MCP server is installed (via npm), Playwright browser packages install the browsers you choose in settings (Chromium, Firefox, WebKit). Default: Chromium only.
-- 📦 **MCP Server** - Installed at runtime on first activate (always `latest`). If already installed for the current extension version, it is reused. After an extension update or reinstall, the server is reinstalled with `latest`. Use **Browser DevTools MCP: Install MCP Server...** to install or switch to a specific version (version list from npm).
+- 🌐 **Playwright Browsers** - On activate, the extension downloads the browsers selected in settings (default: Chromium + headless shell + ffmpeg) into Playwright’s normal cache using `playwright-core`’s installer—no `npx` required. VSIX builds set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` so binaries are not bundled. Run **Browser DevTools MCP: Install Playwright Browsers...** anytime to pick Chromium (default), Firefox, and/or WebKit: it updates `install.chromium` / `install.firefox` / `install.webkit` to match and downloads those engines.
+- 📦 **MCP Server** - Shipped **inside the VSIX** per OS/arch (platform-specific packages). No npm required at runtime; the extension runs the bundled `browser-devtools-mcp` with `node`.
 
 ## Installation
 
@@ -57,9 +57,10 @@ cursor --install-extension browser-devtools-mcp-vscode-x.x.x.vsix
 
 ## Telemetry
 
-The extension sends anonymous telemetry events to [PostHog](https://posthog.com) (same project as [browser-devtools-mcp](https://www.npmjs.com/package/browser-devtools-mcp)) to understand install and uninstall usage. No PII is collected; only an anonymous ID stored in `~/.browser-devtools-mcp/config.json`, plus event name and environment properties (e.g. extension version, OS, Node version).
+The extension can send **anonymous** usage events (install/uninstall, browser install step, etc.) to help improve the product. The same opt-in/opt-out rules apply as for the bundled [browser-devtools-mcp](https://www.npmjs.com/package/browser-devtools-mcp) server. No PII is collected; only an anonymous ID in `~/.browser-devtools-mcp/config.json`, plus event name and environment properties (e.g. extension version, OS, Node version).
 
-- **Events:** `cursor_ext_installed` (only when that first-install/upgrade path ran **and** `ensureMcpServerInstalled` succeeded—full “extension + MCP ready”), `cursor_ext_install_failed` (first-run errors such as rule copy, or MCP install errors—sent together with `cursor_ext_mcp_install_failed` on MCP failures), `cursor_ext_uninstalled` (when the extension is uninstalled and deactivate runs with the extension listed in `.obsolete`—e.g. after “Reload to complete uninstall”), `cursor_ext_mcp_installed` (when the MCP server is successfully installed, e.g. on first activate or via **Install MCP Server**), `cursor_ext_mcp_install_failed` (when npm install of the MCP server fails, server missing after install, or install wait timeout). If telemetry is disabled (setting, env, or config), no events are sent.
+- **Events:** `cursor_ext_installed` (only when that first-install/upgrade path ran **and** bundled MCP path resolved), `cursor_ext_install_failed` (first-run errors such as rule copy, or bundled MCP missing at activate), `cursor_ext_browser_installed` / `cursor_ext_browser_install_failed` (Playwright browser install step after activate, after `install.*` setting changes, or from **Install Playwright Browsers**—fires when the step succeeds or fails, not only on a fresh download; properties include `browser_install_trigger` and `browser_components` or `error_message`), `cursor_ext_uninstalled` (when the extension is uninstalled and deactivate runs with the extension listed in `.obsolete`—e.g. after “Reload to complete uninstall”). If telemetry is disabled (setting, env, or config), no events are sent.
+- **Timing:** Clients may batch or delay sending—events might not appear in analytics immediately. **`TELEMETRY_ENABLE=false`** and **`~/.browser-devtools-mcp/config.json`** apply to both the extension and the **bundled** MCP process (the extension forwards the parent environment to the server).
 
 **How to disable telemetry**
 
@@ -67,22 +68,31 @@ The extension sends anonymous telemetry events to [PostHog](https://posthog.com)
 2. **Environment variable:** Set `TELEMETRY_ENABLE=false` before starting VS Code/Cursor.
 3. **Config file:** Edit `~/.browser-devtools-mcp/config.json` and set `"telemetryEnabled": false`.
 
-## MCP Server (runtime install)
+## MCP Server (bundled)
 
-The browser-devtools-mcp server is **not bundled** in the extension. It is installed at runtime so native dependencies (e.g. sharp) match your platform.
+The `browser-devtools-mcp` package is a **dependency of this extension** and is included in the published VSIX with production `node_modules` (native modules such as **sharp** are built for each target in CI). Open VSX / the marketplace serves the correct VSIX for your platform (e.g. `darwin-arm64`, `linux-x64`).
 
-- **First activate:** If the server is not yet installed, it is installed automatically with version `latest`. You may see a short “Installing MCP server…” notification.
-- **Already installed:** If the server is already present and was installed by the same extension version, it is reused. If the extension was updated or reinstalled, the server is reinstalled with `latest`.
-- **Manual install / change version:** Run **Browser DevTools MCP: Install MCP Server...** from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`). A version picker opens; the list is fetched from npm. Choose **Latest** or a specific version. After install, restart the MCP server to use it.
+- **Activate:** The extension resolves `node_modules/browser-devtools-mcp/dist/index.js` inside the extension folder. No npm and no network required for the server binary itself.
+- **New server versions:** Install a newer **extension** release from the marketplace (or VSIX); the bundled `browser-devtools-mcp` version tracks the extension build.
+- **Dependency range:** `browser-devtools-mcp` is declared as `>=0.5.0 <1.0.0` in `package.json` for maintainers building the VSIX; end users do not run npm for MCP.
 
-Install location: the extension’s global storage (e.g. per-user, not inside the extension folder).
+### Maintainer: platform VSIX build
+
+- **PR / CI:** [.github/workflows/build.yml](.github/workflows/build.yml) — lint plus the same nine-target matrix **package** step (validates `vsce package` per platform; no artifact upload, no publish).
+- **Release / Open VSX:** [.github/workflows/publish-vscode-extension.yml](.github/workflows/publish-vscode-extension.yml) — job **`release`** (version bump, tag, GitHub release on `ubuntu-latest`), then **`package-vsix`** matrix matching [vscode-platform-specific-sample](https://github.com/microsoft/vscode-platform-specific-sample/blob/main/.github/workflows/ci.yml): **win32** (x64, arm64), **linux** (x64, arm64, armhf), **alpine** (x64, arm64), **darwin** (x64, arm64). Each leg checks out the new tag, runs `npm ci` with `npm_config_arch`, and `vsce package --target <platform>-<arch>`. Matrix uses **`fail-fast: false`** so one failing platform does not cancel the others; the matrix job still fails if any leg fails, so **`publish-openvsx`** does not run unless all nine packages succeed. **`publish-openvsx`** downloads the `vsix-*` artifacts and publishes each file with [HaaLeo/publish-vscode-extension@v2](https://github.com/HaaLeo/publish-vscode-extension) (`skipDuplicate: true`). `vsce` collects production dependencies via `npm list --production`, so devDependencies are not bundled.
+
+Local packaging check (one target):
+
+```bash
+npx @vscode/vsce package --target linux-x64 -o /tmp/test.vsix
+```
 
 ## Playwright Browsers
 
 The extension uses Playwright’s browser binaries (Chromium, Firefox, WebKit), stored in the default cache (e.g. `~/.cache/ms-playwright` on Linux, `~/Library/Caches/ms-playwright` on macOS).
 
-- **Which browsers to install:** In Settings, use `browserDevtoolsMcp.install.chromium`, `install.firefox`, and `install.webkit` (default: only Chromium). When the MCP server is installed (first activate or via **Install MCP Server**), only the enabled browsers are downloaded. If you change these settings, run **Browser DevTools MCP: Install MCP Server...** again so the new selection takes effect.
-- **Installation:** npm installs `browser-devtools-mcp` and its dependencies; the Playwright browser packages run their postinstall hooks and download the selected browser binaries. No separate browser-install step is run by the extension.
+- **Which browsers to install:** In Settings, use `browserDevtoolsMcp.install.chromium`, `install.firefox`, and `install.webkit` (default: Chromium group). On **extension activate**, the extension calls Playwright’s `installBrowsersForNpmInstall` with that selection (unless **Use system-installed browser** is on or platform is Node). Playwright skips work when the chosen builds are already present in the cache (`INSTALLATION_COMPLETE`). Changing these settings triggers another install pass; restart the MCP session if it was already running. **Install Playwright Browsers...** in the Command Palette does the same selection UI and **writes those three settings** to match your choice, then runs the installer (so the sidebar/settings panel stay in sync).
+- **VSIX / CI:** `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is set when packaging so browser ZIPs are not part of the extension.
 
 To skip browser download (e.g. you use a system browser or custom path), set the environment variable `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` before starting VS Code/Cursor.
 
@@ -100,6 +110,12 @@ Open VS Code Settings (`Ctrl+,` / `Cmd+,`) and search for "Browser DevTools MCP"
 Browser DevTools MCP: Open Settings
 ```
 
+To (re)download Playwright binaries without waiting for the next activate:
+
+```
+Browser DevTools MCP: Install Playwright Browsers...
+```
+
 ### Available Settings
 
 Settings below are passed to the MCP server as environment variables. Change them in Settings or in the **Browser DevTools MCP** sidebar panel (subset); restart the MCP session to apply.
@@ -112,13 +128,13 @@ Settings below are passed to the MCP server as environment variables. Change the
 | `browserDevtoolsMcp.telemetry.enable` | `true` | Allow anonymous install/uninstall telemetry (see [Telemetry](#telemetry)) |
 | `browserDevtoolsMcp.platform` | `"browser"` | MCP platform: `browser` (web automation) or `node` (Node.js debugging) |
 
-#### Install (browsers to download when installing MCP server)
+#### Install (Playwright browsers to download on activate)
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `browserDevtoolsMcp.install.chromium` | `true` | Install Chromium when installing the MCP server. Change requires running **Install MCP Server** to apply. |
-| `browserDevtoolsMcp.install.firefox` | `false` | Install Firefox when installing the MCP server. Change requires running **Install MCP Server** to apply. |
-| `browserDevtoolsMcp.install.webkit` | `false` | Install WebKit when installing the MCP server. Change requires running **Install MCP Server** to apply. |
+| `browserDevtoolsMcp.install.chromium` | `true` | Download Chromium / headless shell / ffmpeg (Playwright) on activate. |
+| `browserDevtoolsMcp.install.firefox` | `false` | Download Firefox on activate. |
+| `browserDevtoolsMcp.install.webkit` | `false` | Download WebKit on activate. |
 
 #### Browser
 
@@ -365,13 +381,13 @@ This unregisters the server, stops any running MCP processes (e.g. Cursor-starte
 
 ### MCP Server Not Starting
 
-1. Run **Browser DevTools MCP: Install MCP Server...** to install or reinstall the server (choose Latest or a version).
-2. Check that Node.js 22+ is installed and the extension is enabled.
+1. Reinstall the extension or install a fresh VSIX—the MCP server is bundled; a missing `dist/index.js` usually means a broken or partial install.
+2. Check that Node.js 22+ is available to the IDE (extension host) and the extension is enabled.
 3. Check Output panel for "Browser DevTools MCP" logs.
 
 ### Browser Not Launching
 
-1. Ensure the MCP server is installed (run **Browser DevTools MCP: Install MCP Server...** if needed). Playwright browsers are installed when the MCP server is installed via npm.
+1. Run **Browser DevTools MCP: Install Playwright Browsers...** and ensure **Chromium** (or your engine) is selected, or rely on `install.*` settings + extension activate. Skip download if you use a system browser only.
 2. Try disabling headless mode in settings
 3. Check if a custom executable path is needed (e.g. system browser or custom build)
 

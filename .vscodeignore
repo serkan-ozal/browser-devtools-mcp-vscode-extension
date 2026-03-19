@@ -4,14 +4,23 @@ src/**
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md
+.github/**
+.release-it.json
 **/tsconfig.json
 **/.eslintrc.json
 **/*.map
 **/*.ts
 !dist/**
-# Exclude all node_modules except runtime deps (which + isexe) needed for npm resolution.
-node_modules/**
-!node_modules/which/
-!node_modules/which/**
-!node_modules/isexe/
-!node_modules/isexe/**
+# Runtime does not need generated declaration files (smaller VSIX)
+dist/**/*.d.ts
+# Dev-only repo files (not required in marketplace / VSIX)
+.prettierrc.json
+package-lock.json
+# vsce packages production node_modules via `npm list --production`. Trim noise; keep *.node native binaries.
+node_modules/**/.bin/**
+node_modules/**/*.md
+node_modules/**/test/**
+node_modules/**/docs/**
+node_modules/**/CHANGELOG*
+node_modules/**/LICENSE*
+node_modules/**/examples/**

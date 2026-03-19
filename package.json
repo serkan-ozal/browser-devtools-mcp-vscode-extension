@@ -1,7 +1,7 @@
 {
   "name": "browser-devtools-mcp-vscode",
   "displayName": "Browser DevTools MCP",
-  "description": "Playwright-powered browser automation and Node.js backend debugging for VS Code and Cursor via MCP. The MCP server (browser-devtools-mcp) is installed at runtime on first activate; use Install MCP Server to change version. Navigate, execute, a11y, content, interaction, Web Vitals, stub, React/Figma, tracepoints/logpoints.",
+  "description": "Playwright-powered browser automation and Node.js backend debugging for VS Code and Cursor via MCP. The MCP server (browser-devtools-mcp) is bundled per platform in the VSIX; Playwright browsers download on activate. No npm required. Navigate, execute, a11y, content, interaction, Web Vitals, stub, React/Figma, tracepoints/logpoints.",
   "version": "0.4.9",
   "publisher": "serkan-ozal",
   "author": {
@@ -55,9 +55,9 @@
         "icon": "$(settings-gear)"
       },
       {
-        "command": "browserDevtoolsMcp.installMcpServer",
-        "title": "Browser DevTools MCP: Install MCP Server...",
-        "icon": "$(desktop-download)"
+        "command": "browserDevtoolsMcp.installBrowsers",
+        "title": "Browser DevTools MCP: Install Playwright Browsers...",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "browserDevtoolsMcp.restartServer",
@@ -87,7 +87,7 @@
         "browserDevtoolsMcp.telemetry.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Allow sending anonymous install/uninstall telemetry (PostHog). When false, also disables telemetry for the uninstall hook."
+          "description": "Allow sending anonymous install/uninstall telemetry. When false, also disables telemetry for the uninstall hook."
         },
         "browserDevtoolsMcp.browser.headless": {
           "type": "boolean",
@@ -132,17 +132,17 @@
         "browserDevtoolsMcp.install.chromium": {
           "type": "boolean",
           "default": true,
-          "description": "Install Chromium when installing the MCP server. Change requires running 'Install MCP Server' to apply."
+          "description": "Download Chromium, headless shell, and ffmpeg (Playwright) into the default cache when the extension activates."
         },
         "browserDevtoolsMcp.install.firefox": {
           "type": "boolean",
           "default": false,
-          "description": "Install Firefox when installing the MCP server. Change requires running 'Install MCP Server' to apply."
+          "description": "Download Firefox (Playwright) into the default cache on activate."
         },
         "browserDevtoolsMcp.install.webkit": {
           "type": "boolean",
           "default": false,
-          "description": "Install WebKit when installing the MCP server. Change requires running 'Install MCP Server' to apply."
+          "description": "Download WebKit (Playwright) into the default cache on activate."
         },
         "browserDevtoolsMcp.platform": {
           "type": "string",
@@ -286,7 +286,6 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "@types/which": "^3.0.0",
     "@types/vscode": "^1.96.0",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
@@ -297,6 +296,6 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "which": "^4.0.0"
+    "browser-devtools-mcp": ">=0.5.0 <1.0.0"
   }
 }

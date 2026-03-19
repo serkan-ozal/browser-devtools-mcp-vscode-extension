@@ -1,15 +1,16 @@
-import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import which from 'which';
+import {
+    ensurePlaywrightBrowsersInstalled,
+    installPlaywrightBrowsersByGroups,
+    type PlaywrightBrowserInstallGroup,
+} from './playwrightBrowsersInstall';
 import { SettingsWebviewProvider } from './settingsWebview';
 import {
     trackCursorExtInstallFailed,
     trackCursorExtInstalled,
-    trackCursorExtMcpInstallFailed,
-    trackCursorExtMcpInstalled,
     trackCursorExtUninstallFailed,
     trackCursorExtUninstalled,
     writeTelemetryEnabledToConfig,
@@ -20,17 +21,6 @@ const CONFIG_PREFIX = 'browserDevtoolsMcp';
 
 // GitHub repo for issue reporting when install fails
 const GITHUB_ISSUES_BASE = 'https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension/issues/new';
-
-// MCP server installed at runtime (like Playwright browsers); avoids bundling sharp for all platforms
-const MCP_SERVER_INSTALL_DIR = 'mcp-server';
-const MCP_SERVER_EXTENSION_VERSION_MARKER = '.extension-version';
-const MCP_INSTALL_LOCK_FILE = '.mcp-install.lock';
-const DEFAULT_MCP_SERVER_VERSION = 'latest';
-/** If lock file is older than this, a waiter may remove it (stale lock). */
-const MCP_INSTALL_LOCK_STALE_MS = 5 * 60 * 1000;
-/** How long waiters poll for installer to finish. */
-const MCP_INSTALL_WAITER_TIMEOUT_MS = 5 * 60 * 1000;
-const MCP_INSTALL_POLL_INTERVAL_MS = 1500;
 
 /** File under globalStorage to track extension version for first-run / upgrade; only one activate runs onInstall. */
 const EXTENSION_VERSION_FILE = '.extension-version';
@@ -51,6 +41,12 @@ let cachedMcpServerPath: string | null = null;
 let extensionPathForDeactivate: string | null = null;
 let globalStoragePathForDeactivate: string | null = null;
 let extensionVersionForDeactivate: string = '';
+
+/**
+ * While true, install.* configuration changes from "Install Playwright Browsers" skip the
+ * onDidChangeConfiguration auto-install (that command updates settings and runs install once).
+ */
+let suppressConfigDrivenBrowserReinstall = false;
 
 // Map VS Code settings to environment variables
 const SETTINGS_TO_ENV: Record<string, string> = {
@@ -138,194 +134,6 @@ function isCursor(): boolean {
     return appName.toLowerCase().includes('cursor');
 }
 
-function getMcpServerInstallDir(context: vscode.ExtensionContext): string {
-    return path.join(context.globalStoragePath, MCP_SERVER_INSTALL_DIR);
-}
-
-/**
- * Remove the MCP server install directory (globalStorage/mcp-server) for a clean reinstall.
- */
-function removeMcpServerInstallDir(installDir: string): void {
-    if (fs.existsSync(installDir)) {
-        fs.rmSync(installDir, { recursive: true, force: true });
-    }
-}
-
-/** Path to the MCP install lock file (shared across extension host processes). */
-function getMcpInstallLockPath(context: vscode.ExtensionContext): string {
-    return path.join(context.globalStoragePath, MCP_INSTALL_LOCK_FILE);
-}
-
-/**
- * Try to acquire the MCP install lock. Returns true if we own the lock, false if another process holds it.
- * Call releaseMcpInstallLock when done (install success or failure).
- */
-function tryAcquireMcpInstallLock(context: vscode.ExtensionContext): boolean {
-    const lockPath = getMcpInstallLockPath(context);
-    fs.mkdirSync(context.globalStoragePath, { recursive: true });
-    try {
-        fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
-        return true;
-    } catch (e: unknown) {
-        const err = e as NodeJS.ErrnoException;
-        if (err?.code === 'EEXIST') {
-            return false;
-        }
-        throw e;
-    }
-}
-
-/** Release the MCP install lock so other processes can install or proceed. */
-function releaseMcpInstallLock(context: vscode.ExtensionContext): void {
-    try {
-        fs.unlinkSync(getMcpInstallLockPath(context));
-    } catch {
-        // ignore
-    }
-}
-
-/** Hint shown when npm is not found (PATH / GUI launch). Covers macOS, Linux, Windows. */
-const NPM_NOT_FOUND_HINT =
-    'npm was not found. This often happens when Cursor was opened from the dock/taskbar instead of a terminal. ' +
-    'Try opening Cursor from a terminal (e.g. run "cursor ." from a folder). ' +
-    'On macOS, add PATH for GUI apps by editing /etc/paths and restarting Finder. ' +
-    'On Linux, ensure Node/npm are in PATH or launch from a terminal. ' +
-    'On Windows, ensure Node.js is installed and its folder is in System PATH.';
-
-/**
- * Resolve npm executable path from PATH (so we can run it even when extension host env is limited).
- * Uses the same logic as npm (which package). Returns null if npm is not found.
- */
-function resolveNpmPath(): string | null {
-    try {
-        return which.sync('npm', { nothrow: true }) ?? null;
-    } catch {
-        return null;
-    }
-}
-
-/** Quote npm path for Windows shell so paths with spaces (e.g. C:\Program Files\...) are not split. */
-function quotedNpmPathForWindowsShell(npmPath: string): string {
-    return `"${npmPath.replace(/"/g, '\\"')}"`;
-}
-
-/**
- * Run npm with the given args. Uses resolved npm path if available (avoids PATH issues when Cursor is launched from GUI).
- * Falls back to "npm" with shell: true so the system shell's PATH is used. Throws on failure.
- * On Windows, runs npm via shell with quoted path so paths with spaces (e.g. Program Files) work.
- */
-function runNpm(cwd: string, env: Record<string, string>, args: string[], options: { timeout?: number } = {}): void {
-    const { timeout = 60_000 } = options;
-    const npmPath = resolveNpmPath();
-    const opts = { cwd, encoding: 'utf8' as const, timeout, stdio: 'pipe' as const, env };
-    if (npmPath) {
-        if (process.platform === 'win32') {
-            // Windows: .cmd/.bat need shell, and path must be quoted so "C:\Program Files\..." is not split
-            cp.execSync(`${quotedNpmPathForWindowsShell(npmPath)} ${args.join(' ')}`, {
-                ...opts,
-                shell: true,
-            } as unknown as cp.ExecSyncOptionsWithStringEncoding);
-        } else {
-            // macOS/Linux: run directly, no shell; path with spaces is passed correctly as single argv
-            cp.execFileSync(npmPath, args, opts);
-        }
-    } else {
-        // shell: true uses system shell PATH; @types/node ExecOptions has shell?: string but runtime accepts boolean
-        cp.execSync(`npm ${args.join(' ')}`, {
-            ...opts,
-            shell: true,
-        } as unknown as cp.ExecSyncOptionsWithStringEncoding);
-    }
-}
-
-/**
- * Run npm and return stdout. Same resolution as runNpm (resolve path or shell: true). Throws on failure.
- */
-function runNpmWithOutput(
-    cwd: string,
-    env: Record<string, string>,
-    args: string[],
-    options: { timeout?: number } = {}
-): string {
-    const { timeout = 60_000 } = options;
-    const npmPath = resolveNpmPath();
-    const opts = { cwd, encoding: 'utf8' as const, timeout, stdio: 'pipe' as const, env };
-    if (npmPath) {
-        if (process.platform === 'win32') {
-            // Windows: .cmd/.bat need shell, and path must be quoted so "C:\Program Files\..." is not split
-            return cp.execSync(`${quotedNpmPathForWindowsShell(npmPath)} ${args.join(' ')}`, {
-                ...opts,
-                shell: true,
-            } as unknown as cp.ExecSyncOptionsWithStringEncoding);
-        }
-        // macOS/Linux: run directly, no shell; path with spaces is passed correctly as single argv
-        return cp.execFileSync(npmPath, args, opts) as string;
-    }
-    // shell: true uses system shell PATH; @types/node ExecOptions has shell?: string but runtime accepts boolean
-    return cp.execSync(`npm ${args.join(' ')}`, {
-        ...opts,
-        shell: true,
-    } as unknown as cp.ExecSyncOptionsWithStringEncoding);
-}
-
-/** True if the error looks like npm/node not found (command not found, not recognized, ENOENT). */
-function isNpmNotFoundError(err: unknown): boolean {
-    const msg = err instanceof Error ? err.message : String(err);
-    const stderr = (err as { stderr?: Buffer | string }).stderr;
-    const stderrStr = typeof stderr === 'string' ? stderr : (stderr?.toString?.() ?? '');
-    const combined = `${msg} ${stderrStr}`.toLowerCase();
-    return (
-        combined.includes('command not found') ||
-        combined.includes('not found') ||
-        combined.includes('is not recognized as an internal or external command') ||
-        combined.includes('npm: command not found') ||
-        combined.includes('node: command not found') ||
-        combined.includes("'npm' is not recognized") ||
-        combined.includes("'node' is not recognized") ||
-        combined.includes('enoent') ||
-        /spawn\s+.*\s+enoent/i.test(combined)
-    );
-}
-
-/** User-facing install error message; appends NPM_NOT_FOUND_HINT when the error indicates npm was not found. */
-function getInstallErrorMessage(baseMessage: string, err: unknown): string {
-    if (isNpmNotFoundError(err)) {
-        return `${baseMessage}\n\n${NPM_NOT_FOUND_HINT}`;
-    }
-    return baseMessage;
-}
-
-/**
- * Run npm install browser-devtools-mcp@version in installDir. Throws on failure.
- * Env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 so Playwright's postinstall skips; BROWSER_DEVTOOLS_INSTALL_* from settings
- * so browser-devtools-mcp postinstall installs only the selected browsers (it unsets SKIP before calling installBrowsersForNpmInstall).
- */
-function doMcpServerInstall(installDir: string, version: string): void {
-    fs.mkdirSync(installDir, { recursive: true });
-    const pkgPath = path.join(installDir, 'package.json');
-    if (!fs.existsSync(pkgPath)) {
-        fs.writeFileSync(pkgPath, JSON.stringify({ name: MCP_SERVER_INSTALL_DIR, private: true }, null, 2));
-    }
-    const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
-    const installChromium = config.get<boolean>('install.chromium', true);
-    const installFirefox = config.get<boolean>('install.firefox', false);
-    const installWebkit = config.get<boolean>('install.webkit', false);
-    const installEnv: Record<string, string> = {
-        ...process.env,
-        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
-    };
-    if (installChromium) {
-        installEnv['BROWSER_DEVTOOLS_INSTALL_CHROMIUM'] = 'true';
-    }
-    if (installFirefox) {
-        installEnv['BROWSER_DEVTOOLS_INSTALL_FIREFOX'] = 'true';
-    }
-    if (installWebkit) {
-        installEnv['BROWSER_DEVTOOLS_INSTALL_WEBKIT'] = 'true';
-    }
-    runNpm(installDir, installEnv, ['install', `browser-devtools-mcp@${version}`], { timeout: 300_000 });
-}
-
 function getExtensionVersion(context: vscode.ExtensionContext): string {
     const v = context.extension?.packageJSON?.version;
     return typeof v === 'string' ? v : '';
@@ -361,7 +169,7 @@ async function onInstall(context: vscode.ExtensionContext): Promise<void> {
 
 /**
  * If globalStorage .extension-version is missing or differs from current version, write it and call onInstall().
- * Returns true when first install or upgrade path ran (onInstall executed). cursor_ext_installed is sent only after MCP install succeeds.
+ * Returns true when first install or upgrade path ran (onInstall executed). cursor_ext_installed is sent only after bundled MCP path resolves.
  * TODO: If multiple windows (separate extension host processes) can activate at once and only one must run onInstall(),
  * use a file lock: create a .extension-version.lock file with fs.writeFileSync(..., { flag: 'wx' }); only one process succeeds;
  * others poll until the lock is removed, then re-read .extension-version and skip if already current.
@@ -386,205 +194,96 @@ async function runInstallIfNeeded(context: vscode.ExtensionContext): Promise<boo
 }
 
 /**
- * Ensure browser-devtools-mcp is installed (globalStorage or bundled for dev). Returns path to dist/index.js.
- * Installs at runtime so sharp and native deps match user's platform.
- * If server exists but was installed by a different extension version (update/reinstall), we reinstall latest.
+ * Resolve path to browser-devtools-mcp dist/index.js from the VSIX-bundled copy.
+ * Published builds ship platform-specific native deps (sharp) via per-target VSIX packaging in CI.
  */
 async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promise<string> {
     if (cachedMcpServerPath !== null) {
         return cachedMcpServerPath;
     }
-    const installDir = getMcpServerInstallDir(context);
-    const serverPath = path.join(installDir, 'node_modules', 'browser-devtools-mcp', 'dist', 'index.js');
-    const markerPath = path.join(installDir, MCP_SERVER_EXTENSION_VERSION_MARKER);
-    // Dev only: extension's node_modules (published VSIX has no node_modules, so this is never used by end users)
     const bundledPath = path.join(context.extensionPath, 'node_modules', 'browser-devtools-mcp', 'dist', 'index.js');
 
     if (fs.existsSync(bundledPath)) {
         cachedMcpServerPath = bundledPath;
-        console.log('[Browser DevTools MCP] Using bundled server (dev):', bundledPath);
+        console.log('[Browser DevTools MCP] Using bundled MCP server:', bundledPath);
         return bundledPath;
     }
 
     const currentVersion = getExtensionVersion(context);
-    const needInstall =
-        !fs.existsSync(serverPath) ||
-        (currentVersion !== '' &&
-            (!fs.existsSync(markerPath) || fs.readFileSync(markerPath, 'utf8').trim() !== currentVersion));
-
-    if (fs.existsSync(serverPath) && !needInstall) {
-        cachedMcpServerPath = serverPath;
-        console.log('[Browser DevTools MCP] Using installed server:', serverPath);
-        return serverPath;
-    }
-
-    function isServerReady(): boolean {
-        if (!fs.existsSync(serverPath)) {
-            return false;
-        }
-        if (currentVersion === '') {
-            return true;
-        }
-        return fs.existsSync(markerPath) && fs.readFileSync(markerPath, 'utf8').trim() === currentVersion;
-    }
-
-    const lockPath = getMcpInstallLockPath(context);
-    const acquired = tryAcquireMcpInstallLock(context);
-    if (acquired) {
-        try {
-            return await vscode.window.withProgress(
-                {
-                    location: vscode.ProgressLocation.Notification,
-                    title: 'Browser DevTools MCP',
-                    cancellable: false,
-                },
-                async (progress) => {
-                    progress.report({ message: `Installing browser-devtools-mcp@${DEFAULT_MCP_SERVER_VERSION}…` });
-                    try {
-                        doMcpServerInstall(installDir, DEFAULT_MCP_SERVER_VERSION);
-                    } catch (err) {
-                        const msg = err instanceof Error ? err.message : String(err);
-                        console.error('[Browser DevTools MCP] npm install failed:', msg);
-                        void trackCursorExtMcpInstallFailed(currentVersion, DEFAULT_MCP_SERVER_VERSION, msg);
-                        void trackCursorExtInstallFailed(currentVersion, `MCP install: ${msg}`);
-                        showErrorWithIssueLink(
-                            getInstallErrorMessage(
-                                `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
-                                err
-                            ),
-                            false,
-                            err
-                        );
-                        throw err;
-                    }
-                    if (!fs.existsSync(serverPath)) {
-                        const msg = 'MCP server not found after install.';
-                        void trackCursorExtMcpInstallFailed(currentVersion, DEFAULT_MCP_SERVER_VERSION, msg);
-                        void trackCursorExtInstallFailed(currentVersion, `MCP install: ${msg}`);
-                        const err = new Error(msg);
-                        showErrorWithIssueLink(
-                            getInstallErrorMessage(
-                                `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
-                                err
-                            ),
-                            false,
-                            err
-                        );
-                        throw err;
-                    }
-                    if (currentVersion !== '') {
-                        fs.mkdirSync(installDir, { recursive: true });
-                        fs.writeFileSync(markerPath, currentVersion, 'utf8');
-                    }
-                    cachedMcpServerPath = serverPath;
-                    console.log('[Browser DevTools MCP] Installed server:', serverPath);
-                    void trackCursorExtMcpInstalled(currentVersion, DEFAULT_MCP_SERVER_VERSION);
-                    void vscode.window.showInformationMessage(
-                        `Browser DevTools MCP: Installed browser-devtools-mcp@${DEFAULT_MCP_SERVER_VERSION}. Ready to use.`
-                    );
-                    return serverPath;
-                }
-            );
-        } finally {
-            releaseMcpInstallLock(context);
-        }
-    }
-
-    // Another window is installing; wait for it to finish, then use the server (no event from this process).
-    const deadline = Date.now() + MCP_INSTALL_WAITER_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-        if (fs.existsSync(lockPath)) {
-            try {
-                const stat = fs.statSync(lockPath);
-                if (Date.now() - stat.mtimeMs > MCP_INSTALL_LOCK_STALE_MS) {
-                    fs.unlinkSync(lockPath);
-                }
-            } catch {
-                // ignore
-            }
-        } else {
-            if (isServerReady()) {
-                cachedMcpServerPath = serverPath;
-                console.log('[Browser DevTools MCP] Using server installed by another window:', serverPath);
-                return serverPath;
-            }
-        }
-        await new Promise((r) => setTimeout(r, MCP_INSTALL_POLL_INTERVAL_MS));
-    }
-    const timeoutMsg =
-        'Browser DevTools MCP: Install timed out. Another Cursor window may be installing the MCP server; try again in a moment.';
-    void trackCursorExtMcpInstallFailed(currentVersion, DEFAULT_MCP_SERVER_VERSION, timeoutMsg);
-    void trackCursorExtInstallFailed(currentVersion, `MCP install: ${timeoutMsg}`);
-    throw new Error(timeoutMsg);
+    const msg =
+        'Bundled MCP server not found (browser-devtools-mcp). Reinstall the extension or install a fresh VSIX from the marketplace.';
+    void trackCursorExtInstallFailed(currentVersion, `MCP: ${msg}`);
+    const err = new Error(msg);
+    showErrorWithIssueLink(`Browser DevTools MCP: ${msg}`, false, err);
+    throw err;
 }
 
 /**
- * Command: install or reinstall browser-devtools-mcp with version picker (npm versions on-demand; first run always uses latest).
+ * Command palette: pick Playwright browser groups to download (Chromium pre-selected = Chrome automation stack).
  */
-async function installMcpServerCommand(context: vscode.ExtensionContext): Promise<void> {
-    let versions: string[] = [];
-    try {
-        const env = process.env as Record<string, string>;
-        const out = runNpmWithOutput(process.cwd(), env, ['view', 'browser-devtools-mcp', 'versions', '--json'], {
-            timeout: 15_000,
-        });
-        const parsed = JSON.parse(out.trim()) as string[];
-        versions = Array.isArray(parsed) ? parsed : [];
-    } catch (_) {
-        // fallback to just "latest"
-    }
-    const items: vscode.QuickPickItem[] = [{ label: 'Latest', description: 'latest', detail: 'Use latest from npm' }];
-    const reversed = [...versions].reverse();
-    for (const v of reversed) {
-        items.push({ label: v, description: v });
-    }
-    const picked = await vscode.window.showQuickPick(items, {
-        title: 'Install Browser DevTools MCP server',
-        placeHolder: 'Select version to install (default: Latest)',
-        matchOnDescription: true,
+async function installBrowsersCommand(context: vscode.ExtensionContext): Promise<void> {
+    const items: vscode.QuickPickItem[] = [
+        {
+            label: 'Chromium',
+            description: 'Chromium, headless shell, ffmpeg (default)',
+            picked: true,
+        },
+        { label: 'Firefox', description: 'Mozilla Firefox' },
+        { label: 'WebKit', description: 'WebKit (Safari engine)' },
+    ];
+
+    const selected = await vscode.window.showQuickPick(items, {
+        title: 'Browser DevTools MCP: Install Playwright browsers',
+        placeHolder: 'Space to toggle, Enter to download',
+        canPickMany: true,
     });
-    if (!picked) {
+
+    if (selected === undefined) {
         return;
     }
-    const version = picked.description ?? picked.label ?? DEFAULT_MCP_SERVER_VERSION;
-    const installDir = getMcpServerInstallDir(context);
-    await vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: 'Browser DevTools MCP',
-            cancellable: false,
-        },
-        async (progress) => {
-            progress.report({ message: 'Cleaning previous install…' });
-            removeMcpServerInstallDir(installDir);
-            cachedMcpServerPath = null;
-            progress.report({ message: `Installing browser-devtools-mcp@${version}…` });
-            try {
-                doMcpServerInstall(installDir, version);
-                const serverPath = path.join(installDir, 'node_modules', 'browser-devtools-mcp', 'dist', 'index.js');
-                if (fs.existsSync(serverPath)) {
-                    cachedMcpServerPath = serverPath;
-                }
-                void trackCursorExtMcpInstalled(getExtensionVersion(context), version);
-                void vscode.window.showInformationMessage(
-                    `Browser DevTools MCP: Installed browser-devtools-mcp@${version}. Restart the MCP server to use it.`
-                );
-            } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                void trackCursorExtMcpInstallFailed(getExtensionVersion(context), version, msg);
-                void trackCursorExtInstallFailed(getExtensionVersion(context), `MCP install (command): ${msg}`);
-                showErrorWithIssueLink(
-                    getInstallErrorMessage(
-                        `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
-                        err
-                    ),
-                    false,
-                    err
-                );
-                throw err;
-            }
+    if (selected.length === 0) {
+        void vscode.window.showWarningMessage('Browser DevTools MCP: Select at least one browser.');
+        return;
+    }
+
+    const groups: PlaywrightBrowserInstallGroup[] = [];
+    for (const item of selected) {
+        if (item.label === 'Chromium') {
+            groups.push('chromium');
+        } else if (item.label === 'Firefox') {
+            groups.push('firefox');
+        } else if (item.label === 'WebKit') {
+            groups.push('webkit');
         }
-    );
+    }
+
+    const wantChromium = groups.includes('chromium');
+    const wantFirefox = groups.includes('firefox');
+    const wantWebkit = groups.includes('webkit');
+
+    const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
+    suppressConfigDrivenBrowserReinstall = true;
+    try {
+        await config.update('install.chromium', wantChromium, vscode.ConfigurationTarget.Global);
+        await config.update('install.firefox', wantFirefox, vscode.ConfigurationTarget.Global);
+        await config.update('install.webkit', wantWebkit, vscode.ConfigurationTarget.Global);
+
+        const ok = await installPlaywrightBrowsersByGroups(context.extensionPath, groups, {
+            extensionVersion: getExtensionVersion(context),
+            trigger: 'command',
+        });
+        if (ok) {
+            void vscode.window.showInformationMessage(
+                'Browser DevTools MCP: Updated install.* settings and finished Playwright browser download. Restart the MCP session if the server was already running.'
+            );
+        } else {
+            void vscode.window.showWarningMessage(
+                'Browser DevTools MCP: install.* settings were updated, but the browser download failed. Check the Output panel or try again.'
+            );
+        }
+    } finally {
+        suppressConfigDrivenBrowserReinstall = false;
+    }
 }
 
 /**
@@ -796,13 +495,19 @@ export async function activate(context: vscode.ExtensionContext) {
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
 
-    // Install MCP server at runtime (globalStorage) so sharp/native deps match user platform; fallback to bundled for dev
+    // Resolve bundled (VSIX) browser-devtools-mcp entrypoint
     await ensureMcpServerInstalled(context);
 
-    // Full extension install success = MCP ready (cursor_ext_installed only after npm/bundled path succeeds)
+    // Full extension install success = MCP path ready (bundled per platform in published VSIX)
     if (didRunExtensionInstall) {
         void trackCursorExtInstalled(getExtensionVersion(context));
     }
+
+    // Playwright browsers are not in the VSIX (CI sets PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD); download into default cache on activate.
+    await ensurePlaywrightBrowsersInstalled(context.extensionPath, CONFIG_PREFIX, {
+        extensionVersion: getExtensionVersion(context),
+        trigger: 'activate',
+    });
 
     // Register MCP: Cursor uses cursor.mcp.registerServer; VS Code uses lm.registerMcpServerDefinitionProvider (VS Code 1.96+).
     if (isCursor()) {
@@ -834,9 +539,9 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // Register Install MCP Server Command
+    // Register Install Playwright Browsers (user picks Chromium / Firefox / WebKit; Chromium pre-selected)
     context.subscriptions.push(
-        vscode.commands.registerCommand('browserDevtoolsMcp.installMcpServer', () => installMcpServerCommand(context))
+        vscode.commands.registerCommand('browserDevtoolsMcp.installBrowsers', () => installBrowsersCommand(context))
     );
 
     // Register Restart Server Command
@@ -886,8 +591,15 @@ export async function activate(context: vscode.ExtensionContext) {
                     e.affectsConfiguration(`${CONFIG_PREFIX}.install.firefox`) ||
                     e.affectsConfiguration(`${CONFIG_PREFIX}.install.webkit`)
                 ) {
+                    if (suppressConfigDrivenBrowserReinstall) {
+                        return;
+                    }
+                    void ensurePlaywrightBrowsersInstalled(extensionPathForDeactivate ?? '', CONFIG_PREFIX, {
+                        extensionVersion: extensionVersionForDeactivate || '0.0.0',
+                        trigger: 'settings_change',
+                    });
                     vscode.window.showInformationMessage(
-                        'Browser DevTools MCP: Install browsers setting changed. Run **Install MCP Server** to reinstall with the new selection.'
+                        'Browser DevTools MCP: Browser install settings changed. Browsers are being updated; restart the MCP session if it was already running.'
                     );
                 } else if (e.affectsConfiguration(`${CONFIG_PREFIX}.telemetry.enable`)) {
                     syncTelemetryConfigFromVscodeSetting();

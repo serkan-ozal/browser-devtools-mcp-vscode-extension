@@ -1,8 +1,8 @@
 /**
  * Telemetry for Browser DevTools MCP VS Code extension.
- * - cursor_ext_installed: after activate when first install/upgrade ran AND MCP server is ready (bundled or npm path succeeded)
- * - cursor_ext_install_failed: first-run failures (e.g. rule copy) or MCP install failure (also cursor_ext_mcp_install_failed)
- * - cursor_ext_mcp_installed / cursor_ext_mcp_install_failed: MCP npm/bundled install outcome
+ * - cursor_ext_installed: after activate when first install/upgrade ran AND bundled MCP server path resolved
+ * - cursor_ext_install_failed: first-run failures (e.g. rule copy) or bundled MCP missing at activate
+ * - cursor_ext_browser_installed / cursor_ext_browser_install_failed: Playwright browser download success/failure
  * - cursor_ext_uninstalled: from extension deactivate when .obsolete indicates uninstall
  * Uses ~/.browser-devtools-mcp/config.json for anonymousId (same as browser-devtools-mcp).
  * Opt-out: TELEMETRY_ENABLE=false or config.telemetryEnabled.
@@ -13,6 +13,14 @@ import * as fs from 'node:fs';
 import * as https from 'node:https';
 import * as os from 'node:os';
 import * as path from 'node:path';
+
+/** Where Playwright browser install was triggered (activate, settings change, or Install Browsers command). */
+export type BrowserInstallTelemetryTrigger = 'activate' | 'settings_change' | 'command';
+
+export interface BrowserInstallTelemetryContext {
+    extensionVersion: string;
+    trigger: BrowserInstallTelemetryTrigger;
+}
 
 const POSTHOG_API_KEY = process.env.POSTHOG_API_KEY || 'phc_ekFEnQ9ipk0F1BbO0KCkaD8OaYPa4bIqqUoxsCfeFsy';
 const POSTHOG_HOST = 'us.i.posthog.com';
@@ -185,7 +193,11 @@ export async function trackCursorExtInstallFailed(extensionVersion: string, erro
     });
 }
 
-export async function trackCursorExtMcpInstalled(extensionVersion: string, mcpVersion: string): Promise<void> {
+export async function trackCursorExtBrowserInstalled(
+    extensionVersion: string,
+    trigger: BrowserInstallTelemetryTrigger,
+    browserComponents: string
+): Promise<void> {
     if (!isTelemetryEnabled()) {
         return;
     }
@@ -193,15 +205,16 @@ export async function trackCursorExtMcpInstalled(extensionVersion: string, mcpVe
     if (!config.anonymousId) {
         return;
     }
-    await captureEvent('cursor_ext_mcp_installed', config.anonymousId, {
+    await captureEvent('cursor_ext_browser_installed', config.anonymousId, {
         ...buildBaseProperties(extensionVersion),
-        mcp_version: mcpVersion,
+        browser_install_trigger: trigger,
+        browser_components: browserComponents,
     });
 }
 
-export async function trackCursorExtMcpInstallFailed(
+export async function trackCursorExtBrowserInstallFailed(
     extensionVersion: string,
-    mcpVersion: string,
+    trigger: BrowserInstallTelemetryTrigger,
     errorMessage: string
 ): Promise<void> {
     if (!isTelemetryEnabled()) {
@@ -211,9 +224,9 @@ export async function trackCursorExtMcpInstallFailed(
     if (!config.anonymousId) {
         return;
     }
-    await captureEvent('cursor_ext_mcp_install_failed', config.anonymousId, {
+    await captureEvent('cursor_ext_browser_install_failed', config.anonymousId, {
         ...buildBaseProperties(extensionVersion),
-        mcp_version: mcpVersion,
+        browser_install_trigger: trigger,
         error_message: errorMessage,
     });
 }
