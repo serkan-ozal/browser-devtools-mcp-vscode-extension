@@ -2,7 +2,7 @@
   "name": "browser-devtools-mcp-vscode",
   "displayName": "Browser DevTools MCP",
   "description": "Playwright-powered browser automation and Node.js backend debugging for VS Code and Cursor via MCP. The MCP server (browser-devtools-mcp) is bundled per platform in the VSIX; Playwright browsers download on activate. No npm required. Navigate, execute, a11y, content, interaction, Web Vitals, stub, React/Figma, tracepoints/logpoints.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "publisher": "serkan-ozal",
   "author": {
     "name": "Serkan Ozal",
