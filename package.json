@@ -119,6 +119,21 @@
           "default": "",
           "description": "Browser locale (e.g., en-US, tr-TR)"
         },
+        "browserDevtoolsMcp.browser.cdp.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Chrome DevTools Protocol (CDP) attach mode (Chromium only)"
+        },
+        "browserDevtoolsMcp.browser.cdp.endpointUrl": {
+          "type": "string",
+          "default": "",
+          "description": "CDP endpoint URL to attach (http://host:port or ws://...)"
+        },
+        "browserDevtoolsMcp.browser.cdp.openInspect": {
+          "type": "boolean",
+          "default": true,
+          "description": "When loopback CDP attach fails and Chrome is running, open chrome://inspect/#remote-debugging"
+        },
         "browserDevtoolsMcp.browser.consoleMessagesBufferSize": {
           "type": "number",
           "default": 1000,

@@ -148,6 +148,9 @@ Settings below are passed to the MCP server as environment variables. Change the
 | `browserDevtoolsMcp.browser.useSystemBrowser` | `false` | Use system browser instead of bundled |
 | `browserDevtoolsMcp.browser.executablePath` | `""` | Custom browser executable path |
 | `browserDevtoolsMcp.browser.locale` | `""` | Browser locale (e.g., en-US, tr-TR) |
+| `browserDevtoolsMcp.browser.cdp.enable` | `false` | Enable CDP attach mode (Chromium only). |
+| `browserDevtoolsMcp.browser.cdp.endpointUrl` | `""` | Optional CDP endpoint (`http://host:port` or `ws://...`). |
+| `browserDevtoolsMcp.browser.cdp.openInspect` | `true` | On loopback CDP failure, open `chrome://inspect/#remote-debugging` when Chrome is running. |
 | `browserDevtoolsMcp.browser.consoleMessagesBufferSize` | `1000` | Max console messages to buffer |
 | `browserDevtoolsMcp.browser.httpRequestsBufferSize` | `1000` | Max HTTP requests to buffer |
 
