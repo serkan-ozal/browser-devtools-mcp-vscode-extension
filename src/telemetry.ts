@@ -3,6 +3,7 @@
  * - cursor_ext_installed: after activate when first install/upgrade ran AND bundled MCP server path resolved
  * - cursor_ext_install_failed: first-run failures (e.g. rule copy) or bundled MCP missing at activate
  * - cursor_ext_browser_installed / cursor_ext_browser_install_failed: Playwright browser download success/failure
+ * - cursor_ext_activated / cursor_ext_deactivated: extension process lifecycle events
  * - cursor_ext_uninstalled: from extension deactivate when .obsolete indicates uninstall
  * Uses ~/.browser-devtools-mcp/config.json for anonymousId (same as browser-devtools-mcp).
  * Opt-out: TELEMETRY_ENABLE=false or config.telemetryEnabled.
@@ -168,7 +169,7 @@ function buildBaseProperties(extensionVersion: string): Record<string, unknown> 
     };
 }
 
-export async function trackCursorExtInstalled(extensionVersion: string): Promise<void> {
+export async function trackCursorExtInstalled(extensionVersion: string, mcpServerRegistered: boolean): Promise<void> {
     if (!isTelemetryEnabled()) {
         return;
     }
@@ -176,7 +177,24 @@ export async function trackCursorExtInstalled(extensionVersion: string): Promise
     if (!config.anonymousId) {
         return;
     }
-    await captureEvent('cursor_ext_installed', config.anonymousId, buildBaseProperties(extensionVersion));
+    await captureEvent('cursor_ext_installed', config.anonymousId, {
+        ...buildBaseProperties(extensionVersion),
+        mcp_server_registered: mcpServerRegistered,
+    });
+}
+
+export async function trackCursorExtActivated(extensionVersion: string, mcpServerRegistered: boolean): Promise<void> {
+    if (!isTelemetryEnabled()) {
+        return;
+    }
+    const config = readOrCreateConfig();
+    if (!config.anonymousId) {
+        return;
+    }
+    await captureEvent('cursor_ext_activated', config.anonymousId, {
+        ...buildBaseProperties(extensionVersion),
+        mcp_server_registered: mcpServerRegistered,
+    });
 }
 
 export async function trackCursorExtInstallFailed(extensionVersion: string, errorMessage: string): Promise<void> {
@@ -234,7 +252,10 @@ export async function trackCursorExtBrowserInstallFailed(
 /**
  * Send cursor_ext_uninstalled. Await in deactivate when .obsolete indicates uninstall so request completes before process exits.
  */
-export async function trackCursorExtUninstalled(extensionVersion: string): Promise<void> {
+export async function trackCursorExtUninstalled(
+    extensionVersion: string,
+    mcpServerUnregistered: boolean
+): Promise<void> {
     if (!isTelemetryEnabled()) {
         return;
     }
@@ -250,7 +271,27 @@ export async function trackCursorExtUninstalled(extensionVersion: string): Promi
     if (!config.anonymousId || config.telemetryEnabled === false) {
         return;
     }
-    await captureEvent('cursor_ext_uninstalled', config.anonymousId, buildBaseProperties(extensionVersion));
+    await captureEvent('cursor_ext_uninstalled', config.anonymousId, {
+        ...buildBaseProperties(extensionVersion),
+        mcp_server_unregistered: mcpServerUnregistered,
+    });
+}
+
+export async function trackCursorExtDeactivated(
+    extensionVersion: string,
+    mcpServerUnregistered: boolean
+): Promise<void> {
+    if (!isTelemetryEnabled()) {
+        return;
+    }
+    const config = readOrCreateConfig();
+    if (!config.anonymousId) {
+        return;
+    }
+    await captureEvent('cursor_ext_deactivated', config.anonymousId, {
+        ...buildBaseProperties(extensionVersion),
+        mcp_server_unregistered: mcpServerUnregistered,
+    });
 }
 
 /**

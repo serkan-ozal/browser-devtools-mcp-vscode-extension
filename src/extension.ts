@@ -9,6 +9,8 @@ import {
 } from './playwrightBrowsersInstall';
 import { SettingsWebviewProvider } from './settingsWebview';
 import {
+    trackCursorExtActivated,
+    trackCursorExtDeactivated,
     trackCursorExtInstallFailed,
     trackCursorExtInstalled,
     trackCursorExtUninstallFailed,
@@ -41,6 +43,7 @@ let cachedMcpServerPath: string | null = null;
 let extensionPathForDeactivate: string | null = null;
 let globalStoragePathForDeactivate: string | null = null;
 let extensionVersionForDeactivate: string = '';
+let uninstallInProgress = false;
 
 /**
  * While true, install.* configuration changes from "Install Playwright Browsers" skip the
@@ -375,14 +378,14 @@ function showErrorWithIssueLink(message: string, isWarning = false, error?: unkn
  * Register MCP server with Cursor's API so it appears without user editing mcp.json.
  * Sleeps after register so Cursor can process the change.
  */
-async function registerCursorMcp(): Promise<void> {
+async function registerCursorMcp(): Promise<boolean> {
     const cursorMcp = getCursorMcp();
     if (!cursorMcp) {
-        return;
+        return false;
     }
     const config = getMcpServerConfig();
     if (!config) {
-        return;
+        return false;
     }
     try {
         const env: Record<string, string> = {};
@@ -401,6 +404,7 @@ async function registerCursorMcp(): Promise<void> {
         });
         console.log('[Browser DevTools MCP] Registered MCP server with Cursor.');
         await sleep(REGISTER_UNREGISTER_SLEEP_MS);
+        return true;
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn('[Browser DevTools MCP] Cursor MCP register failed:', msg);
@@ -409,6 +413,7 @@ async function registerCursorMcp(): Promise<void> {
             true,
             err
         );
+        return false;
     }
 }
 
@@ -423,17 +428,19 @@ function sleep(ms: number): Promise<void> {
  * Unregister MCP server from Cursor (on deactivate or disable).
  * Sleeps after unregister so Cursor can process the change.
  */
-async function unregisterCursorMcp(): Promise<void> {
+async function unregisterCursorMcp(): Promise<boolean> {
     const cursorMcp = getCursorMcp();
     if (!cursorMcp) {
-        return;
+        return false;
     }
     try {
         cursorMcp.unregisterServer(MCP_SERVER_NAME);
         console.log('[Browser DevTools MCP] Unregistered MCP server from Cursor.');
         await sleep(REGISTER_UNREGISTER_SLEEP_MS);
+        return true;
     } catch (err) {
         console.warn('[Browser DevTools MCP] Cursor MCP unregister failed:', err);
+        return false;
     }
 }
 
@@ -467,6 +474,9 @@ class BrowserDevToolsMcpProvider implements vscode.McpServerDefinitionProvider {
     }
 
     provideMcpServerDefinitions(): vscode.McpServerDefinition[] {
+        if (uninstallInProgress) {
+            return [];
+        }
         const config = getMcpServerConfig();
         if (!config) {
             return [];
@@ -498,11 +508,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // Resolve bundled (VSIX) browser-devtools-mcp entrypoint
     await ensureMcpServerInstalled(context);
 
-    // Full extension install success = MCP path ready (bundled per platform in published VSIX)
-    if (didRunExtensionInstall) {
-        void trackCursorExtInstalled(getExtensionVersion(context));
-    }
-
     // Playwright browsers are not in the VSIX (CI sets PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD); download into default cache on activate.
     await ensurePlaywrightBrowsersInstalled(context.extensionPath, CONFIG_PREFIX, {
         extensionVersion: getExtensionVersion(context),
@@ -510,18 +515,27 @@ export async function activate(context: vscode.ExtensionContext) {
     });
 
     // Register MCP: Cursor uses cursor.mcp.registerServer; VS Code uses lm.registerMcpServerDefinitionProvider (VS Code 1.96+).
+    let mcpServerRegistered = false;
     if (isCursor()) {
-        await registerCursorMcp();
+        mcpServerRegistered = await registerCursorMcp();
     } else if (vscode.lm?.registerMcpServerDefinitionProvider) {
         const mcpProvider = new BrowserDevToolsMcpProvider(context.extensionPath);
         const mcpDisposable = vscode.lm.registerMcpServerDefinitionProvider('browser-devtools-mcp', mcpProvider);
         context.subscriptions.push(mcpDisposable);
         console.log('[Browser DevTools MCP] Registered MCP server with VS Code.');
+        mcpServerRegistered = true;
     } else {
         const msg = 'No MCP API available. Use VS Code 1.96+ or a recent Cursor version.';
         console.warn('[Browser DevTools MCP]', msg);
         void vscode.window.showWarningMessage(`Browser DevTools MCP: ${msg}`);
     }
+
+    // Full extension install success = MCP path ready (bundled per platform in published VSIX).
+    // Include MCP registration result as a telemetry property.
+    if (didRunExtensionInstall) {
+        void trackCursorExtInstalled(getExtensionVersion(context), mcpServerRegistered);
+    }
+    void trackCursorExtActivated(getExtensionVersion(context), mcpServerRegistered);
 
     // Register Settings Webview Provider
     const settingsProvider = new SettingsWebviewProvider(context.extensionUri);
@@ -624,16 +638,15 @@ export async function activate(context: vscode.ExtensionContext) {
 /**
  * Called when this process successfully deleted .extension-version in runUninstallIfNeeded (so only one process calls it when many deactivate concurrently).
  */
-async function onUninstall(): Promise<void> {
+async function onUninstall(mcpServerUnregistered: boolean): Promise<void> {
     try {
         const rulePath = path.join(os.homedir(), '.cursor', 'rules', CURSOR_RULE_FILE_NAME);
-        if (!fs.existsSync(rulePath)) {
-            return;
-        }
-        fs.unlinkSync(rulePath);
-        if (statusBarItem) {
-            statusBarItem.text = '$(globe) Browser DevTools · Cursor rule removed';
-            statusBarItem.tooltip = 'Browser DevTools MCP: Cursor rule removed from ~/.cursor/rules';
+        if (fs.existsSync(rulePath)) {
+            fs.unlinkSync(rulePath);
+            if (statusBarItem) {
+                statusBarItem.text = '$(globe) Browser DevTools · Cursor rule removed';
+                statusBarItem.tooltip = 'Browser DevTools MCP: Cursor rule removed from ~/.cursor/rules';
+            }
         }
     } catch (err) {
         console.error('[Browser DevTools MCP] Failed to remove Cursor rule from ~/.cursor/rules:', err);
@@ -642,7 +655,7 @@ async function onUninstall(): Promise<void> {
     }
 
     try {
-        await trackCursorExtUninstalled(extensionVersionForDeactivate || '0.0.0');
+        await trackCursorExtUninstalled(extensionVersionForDeactivate || '0.0.0', mcpServerUnregistered);
     } catch (err) {
         console.error('[Browser DevTools MCP] Failed to track cursor extension uninstalled:', err);
         const msg = err instanceof Error ? err.message : String(err);
@@ -653,7 +666,7 @@ async function onUninstall(): Promise<void> {
 /**
  * Try to delete globalStorage .extension-version; only the process that succeeds calls onUninstall(), so concurrent deactivates (e.g. multiple windows) result in a single onUninstall().
  */
-async function runUninstallIfNeeded(): Promise<void> {
+async function runUninstallIfNeeded(mcpServerUnregistered: boolean): Promise<void> {
     if (!globalStoragePathForDeactivate) {
         return;
     }
@@ -670,11 +683,15 @@ async function runUninstallIfNeeded(): Promise<void> {
         }
         throw err;
     }
-    await onUninstall();
+    await onUninstall(mcpServerUnregistered);
 }
 
 export async function deactivate(): Promise<void> {
-    await unregisterCursorMcp();
+    let mcpServerUnregistered = false;
+    if (isCursor()) {
+        mcpServerUnregistered = await unregisterCursorMcp();
+    }
+    await trackCursorExtDeactivated(extensionVersionForDeactivate || '0.0.0', mcpServerUnregistered);
     console.log('Browser DevTools MCP extension deactivated');
 
     // If we're in .obsolete, host is uninstalling us; runUninstallIfNeeded (only one process calls onUninstall when many deactivate).
@@ -689,7 +706,13 @@ export async function deactivate(): Promise<void> {
                     ? (JSON.parse(content) as Record<string, boolean>)
                     : {};
                 if (obsolete[folderName] === true) {
-                    await runUninstallIfNeeded();
+                    if (!isCursor()) {
+                        // VS Code unregisters MCP provider via deactivate; while uninstalling,
+                        // provider returns [] so host does not assume server is still available.
+                        uninstallInProgress = true;
+                        mcpServerUnregistered = true;
+                    }
+                    await runUninstallIfNeeded(mcpServerUnregistered);
                 }
             }
         } catch {

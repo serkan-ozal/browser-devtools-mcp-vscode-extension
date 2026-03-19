@@ -22,7 +22,7 @@ This extension integrates [browser-devtools-mcp](https://www.npmjs.com/package/b
 - 🐛 **Non-Blocking Debugging** - Tracepoints, logpoints, exceptionpoints, watch expressions, probe snapshots
 - ⚡ **Execute** - Batch multiple tool calls in one request via JavaScript and `callTool()`; on browser platform `page` (Playwright Page) is available for `page.evaluate()`, `page.locator()`, etc.
 - 🌐 **Playwright Browsers** - On activate, the extension downloads the browsers selected in settings (default: Chromium + headless shell + ffmpeg) into Playwright’s normal cache using `playwright-core`’s installer—no `npx` required. VSIX builds set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` so binaries are not bundled. Run **Browser DevTools MCP: Install Playwright Browsers...** anytime to pick Chromium (default), Firefox, and/or WebKit: it updates `install.chromium` / `install.firefox` / `install.webkit` to match and downloads those engines.
-- 📦 **MCP Server** - Shipped **inside one universal VSIX** (same artifact for all platforms). **sharp** runs via **WASM** (`@img/sharp-wasm32`); native sharp/libvips prebuilds are pruned before packaging. No npm required at runtime; the extension runs the bundled `browser-devtools-mcp` with `node`.
+- 📦 **MCP Server** - Shipped **inside one universal VSIX** (same artifact for all platforms). The package includes `sharp` + `@img/sharp-wasm32`; native sharp/libvips prebuild variants are excluded from VSIX contents. No npm required at runtime; the extension runs the bundled `browser-devtools-mcp` with `node`.
 
 ## Installation
 
@@ -59,7 +59,7 @@ cursor --install-extension browser-devtools-mcp-vscode-x.x.x.vsix
 
 The extension can send **anonymous** usage events (install/uninstall, browser install step, etc.) to help improve the product. The same opt-in/opt-out rules apply as for the bundled [browser-devtools-mcp](https://www.npmjs.com/package/browser-devtools-mcp) server. No PII is collected; only an anonymous ID in `~/.browser-devtools-mcp/config.json`, plus event name and environment properties (e.g. extension version, OS, Node version).
 
-- **Events:** `cursor_ext_installed` (only when that first-install/upgrade path ran **and** bundled MCP path resolved), `cursor_ext_install_failed` (first-run errors such as rule copy, or bundled MCP missing at activate), `cursor_ext_browser_installed` / `cursor_ext_browser_install_failed` (Playwright browser install step after activate, after `install.*` setting changes, or from **Install Playwright Browsers**—fires when the step succeeds or fails, not only on a fresh download; properties include `browser_install_trigger` and `browser_components` or `error_message`), `cursor_ext_uninstalled` (when the extension is uninstalled and deactivate runs with the extension listed in `.obsolete`—e.g. after “Reload to complete uninstall”). If telemetry is disabled (setting, env, or config), no events are sent.
+- **Events:** `cursor_ext_activated` / `cursor_ext_deactivated` (extension lifecycle), `cursor_ext_installed` (only when first-install/upgrade path ran and bundled MCP path resolved), `cursor_ext_install_failed`, `cursor_ext_browser_installed` / `cursor_ext_browser_install_failed`, and `cursor_ext_uninstalled` (when the extension is uninstalled and deactivate runs with the extension listed in `.obsolete`). MCP registration state is included where relevant (`mcp_server_registered` / `mcp_server_unregistered`). If telemetry is disabled (setting, env, or config), no events are sent.
 - **Timing:** Clients may batch or delay sending—events might not appear in analytics immediately. **`TELEMETRY_ENABLE=false`** and **`~/.browser-devtools-mcp/config.json`** apply to both the extension and the **bundled** MCP process (the extension forwards the parent environment to the server).
 
 **How to disable telemetry**
@@ -70,25 +70,23 @@ The extension can send **anonymous** usage events (install/uninstall, browser in
 
 ## MCP Server (bundled)
 
-The `browser-devtools-mcp` package is a **dependency of this extension** and is included in the published VSIX with production `node_modules`. We publish a **single universal VSIX** where native sharp/libvips prebuild packages are excluded from the bundle and `@img/sharp-wasm32` is included. At runtime, `sharp` can use native if available in the host environment; otherwise it falls back to WASM. CI uses `npm ci --omit=optional`, upgrades **`browser-devtools-mcp@latest`**, verifies `sharp.versions.emscripten`, then packages **`universal.vsix`**. **`@img/sharp-wasm32`** is a direct extension dependency (sharp aligns to `0.34.5`) and **`.npmrc`** sets `force=true` so npm installs it on normal hosts.
+The `browser-devtools-mcp` package is a **dependency of this extension** and is included in the published VSIX with production `node_modules`. We publish a **single universal VSIX** where native sharp/libvips prebuild variants are excluded from the bundle and `@img/sharp-wasm32` is included. **`@img/sharp-wasm32`** is a direct extension dependency (aligned with the bundled `sharp`), and **`.npmrc`** sets `force=true` so npm installs it on normal hosts.
 
 - **Activate:** The extension resolves `node_modules/browser-devtools-mcp/dist/index.js` inside the extension folder. No npm and no network required for the server binary itself.
-- **New server versions:** CI and local builds can pull **`browser-devtools-mcp@latest`** before packaging; end users still get versions bundled into the VSIX they install.
-- **Dependencies:** `browser-devtools-mcp: latest` and `@img/sharp-wasm32` (pinned) in `package.json` for maintainers; end users do not run npm for MCP.
+- **New server versions:** Publish/build workflows are lockfile-driven (`npm ci --omit=optional`). Bump `browser-devtools-mcp` in `package.json` and refresh lockfile when you want to roll forward.
+- **Dependencies:** `browser-devtools-mcp` and `@img/sharp-wasm32` are regular dependencies in `package.json` for maintainers; end users do not run npm for MCP.
 
-### Maintainer: universal VSIX (native-if-available, WASM fallback)
+### Maintainer: universal VSIX
 
-- **PR / CI:** [.github/workflows/build.yml](.github/workflows/build.yml) — lint, then on `ubuntu-latest`: `npm ci --omit=optional`, `npm install --omit=optional browser-devtools-mcp@latest`, inline WASM-check (`sharp.versions.emscripten` + tiny resize), `npx vsce package -o universal.vsix`.
-- **Release / Open VSX:** [.github/workflows/publish-vscode-extension.yml](.github/workflows/publish-vscode-extension.yml) — job **`release`** (version bump, tag, GitHub release), then **`package-vsix`** (same install → inline verify → `universal.vsix`), artifact **`vsix-universal`**. **`publish-openvsx`** downloads that artifact and publishes **`flat/universal.vsix`** once with [HaaLeo/publish-vscode-extension@v2](https://github.com/HaaLeo/publish-vscode-extension) (`skipDuplicate: true`).
+- **PR / CI:** [.github/workflows/build.yml](.github/workflows/build.yml) — `workflow_dispatch`, `pull_request` (`master`), and `push` (`main`) triggers; on `ubuntu-latest` it runs `npm ci --omit=optional`, lint, build, and `npx vsce package`.
+- **Release / Open VSX:** [.github/workflows/publish-vscode-extension.yml](.github/workflows/publish-vscode-extension.yml) — single **`release`** job runs `npm ci --omit=optional`, lint, build, version bump/tag/release, then publishes to Open VSX via [HaaLeo/publish-vscode-extension@v2](https://github.com/HaaLeo/publish-vscode-extension) (`skipDuplicate: true`) and uploads the produced VSIX as artifact.
 - **Packaging filter:** `.vscodeignore` excludes `@img/sharp-darwin-*`, `@img/sharp-win32-*`, `@img/sharp-linux-*`, `@img/sharp-libvips-*` and keeps `sharp` + `@img/sharp-wasm32`. `vsce` collects production dependencies via `npm list --production`, so devDependencies are not bundled.
 
 Local packaging check:
 
 ```bash
 npm ci --omit=optional
-npm install --omit=optional browser-devtools-mcp@latest
-node --input-type=module -e "import sharp from 'sharp'; console.log(sharp.versions)"
-npx vsce package -o universal.vsix
+npx vsce package
 ```
 
 ## Playwright Browsers
