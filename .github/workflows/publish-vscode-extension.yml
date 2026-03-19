@@ -54,7 +54,9 @@ jobs:
           NODE_DEBUG: release-it:*
       - name: Export release tag
         id: meta
-        run: echo "tag=v$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
 
   # Package only. fail-fast: false → one platform failing does not cancel the rest (artifacts still useful).
   # The whole job still fails if any matrix leg fails → publish-openvsx does not run (all packages or no publish).
