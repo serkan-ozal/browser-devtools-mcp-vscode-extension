@@ -2,7 +2,7 @@
   "name": "browser-devtools-mcp-vscode",
   "displayName": "Browser DevTools MCP",
   "description": "Playwright-powered browser automation and Node.js backend debugging for VS Code and Cursor via MCP. Bundled server, no npm setup at runtime. Navigate, execute, accessibility, content inspection, interaction, Web Vitals, stubbing, React/Figma tools, and non-blocking debugging.",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "publisher": "serkan-ozal",
   "author": {
     "name": "Serkan Ozal",
