@@ -357,36 +357,27 @@ async function onInstall(context: vscode.ExtensionContext): Promise<void> {
             msg
         );
     }
-
-    try {
-        trackCursorExtInstalled((context.extension.packageJSON as { version?: string }).version ?? '0.0.0');
-    } catch (err) {
-        console.error('[Browser DevTools MCP] Failed to track cursor extension installed:', err);
-        const msg = err instanceof Error ? err.message : String(err);
-        void trackCursorExtInstallFailed(
-            (context.extension.packageJSON as { version?: string }).version ?? '0.0.0',
-            msg
-        );
-    }
 }
 
 /**
  * If globalStorage .extension-version is missing or differs from current version, write it and call onInstall().
+ * Returns true when first install or upgrade path ran (onInstall executed). cursor_ext_installed is sent only after MCP install succeeds.
  * TODO: If multiple windows (separate extension host processes) can activate at once and only one must run onInstall(),
  * use a file lock: create a .extension-version.lock file with fs.writeFileSync(..., { flag: 'wx' }); only one process succeeds;
  * others poll until the lock is removed, then re-read .extension-version and skip if already current.
  */
-async function runInstallIfNeeded(context: vscode.ExtensionContext): Promise<void> {
+async function runInstallIfNeeded(context: vscode.ExtensionContext): Promise<boolean> {
     const versionFilePath = path.join(context.globalStoragePath, EXTENSION_VERSION_FILE);
     const currentVersion = getExtensionVersion(context);
     const stored = fs.existsSync(versionFilePath) ? fs.readFileSync(versionFilePath, 'utf8').trim() : '';
     if (stored === currentVersion) {
-        return;
+        return false;
     }
     try {
         fs.mkdirSync(context.globalStoragePath, { recursive: true });
         fs.writeFileSync(versionFilePath, currentVersion, 'utf8');
         await onInstall(context);
+        return true;
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         void trackCursorExtInstallFailed(currentVersion, msg);
@@ -455,6 +446,7 @@ async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promi
                         const msg = err instanceof Error ? err.message : String(err);
                         console.error('[Browser DevTools MCP] npm install failed:', msg);
                         void trackCursorExtMcpInstallFailed(currentVersion, DEFAULT_MCP_SERVER_VERSION, msg);
+                        void trackCursorExtInstallFailed(currentVersion, `MCP install: ${msg}`);
                         showErrorWithIssueLink(
                             getInstallErrorMessage(
                                 `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
@@ -468,6 +460,7 @@ async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promi
                     if (!fs.existsSync(serverPath)) {
                         const msg = 'MCP server not found after install.';
                         void trackCursorExtMcpInstallFailed(currentVersion, DEFAULT_MCP_SERVER_VERSION, msg);
+                        void trackCursorExtInstallFailed(currentVersion, `MCP install: ${msg}`);
                         const err = new Error(msg);
                         showErrorWithIssueLink(
                             getInstallErrorMessage(
@@ -518,9 +511,11 @@ async function ensureMcpServerInstalled(context: vscode.ExtensionContext): Promi
         }
         await new Promise((r) => setTimeout(r, MCP_INSTALL_POLL_INTERVAL_MS));
     }
-    throw new Error(
-        'Browser DevTools MCP: Install timed out. Another Cursor window may be installing the MCP server; try again in a moment.'
-    );
+    const timeoutMsg =
+        'Browser DevTools MCP: Install timed out. Another Cursor window may be installing the MCP server; try again in a moment.';
+    void trackCursorExtMcpInstallFailed(currentVersion, DEFAULT_MCP_SERVER_VERSION, timeoutMsg);
+    void trackCursorExtInstallFailed(currentVersion, `MCP install: ${timeoutMsg}`);
+    throw new Error(timeoutMsg);
 }
 
 /**
@@ -577,6 +572,7 @@ async function installMcpServerCommand(context: vscode.ExtensionContext): Promis
             } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
                 void trackCursorExtMcpInstallFailed(getExtensionVersion(context), version, msg);
+                void trackCursorExtInstallFailed(getExtensionVersion(context), `MCP install (command): ${msg}`);
                 showErrorWithIssueLink(
                     getInstallErrorMessage(
                         `Browser DevTools MCP: Install failed. ${msg} Check network and try again.`,
@@ -788,7 +784,7 @@ export async function activate(context: vscode.ExtensionContext) {
     syncTelemetryConfigFromVscodeSetting();
 
     // First run or new version: update globalStorage .extension-version and run onInstall() if needed
-    await runInstallIfNeeded(context);
+    const didRunExtensionInstall = await runInstallIfNeeded(context);
 
     // before status bar uses it
     context.subscriptions.push(vscode.commands.registerCommand('browserDevtoolsMcp.toggleExtension', toggleExtension));
@@ -802,6 +798,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Install MCP server at runtime (globalStorage) so sharp/native deps match user platform; fallback to bundled for dev
     await ensureMcpServerInstalled(context);
+
+    // Full extension install success = MCP ready (cursor_ext_installed only after npm/bundled path succeeds)
+    if (didRunExtensionInstall) {
+        void trackCursorExtInstalled(getExtensionVersion(context));
+    }
 
     // Register MCP: Cursor uses cursor.mcp.registerServer; VS Code uses lm.registerMcpServerDefinitionProvider (VS Code 1.96+).
     if (isCursor()) {

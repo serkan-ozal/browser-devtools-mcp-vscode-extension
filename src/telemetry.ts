@@ -1,6 +1,8 @@
 /**
  * Telemetry for Browser DevTools MCP VS Code extension.
- * - cursor_ext_installed: from extension activate (first install)
+ * - cursor_ext_installed: after activate when first install/upgrade ran AND MCP server is ready (bundled or npm path succeeded)
+ * - cursor_ext_install_failed: first-run failures (e.g. rule copy) or MCP install failure (also cursor_ext_mcp_install_failed)
+ * - cursor_ext_mcp_installed / cursor_ext_mcp_install_failed: MCP npm/bundled install outcome
  * - cursor_ext_uninstalled: from extension deactivate when .obsolete indicates uninstall
  * Uses ~/.browser-devtools-mcp/config.json for anonymousId (same as browser-devtools-mcp).
  * Opt-out: TELEMETRY_ENABLE=false or config.telemetryEnabled.
