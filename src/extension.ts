@@ -373,6 +373,7 @@ async function installBrowsersCommand(context: vscode.ExtensionContext): Promise
         const ok: boolean = await installPlaywrightBrowsersByGroups(context.extensionPath, groups, {
             extensionVersion: getExtensionVersion(context),
             trigger: 'command',
+            configPrefix: CONFIG_PREFIX,
         });
         if (ok) {
             void vscode.window.showInformationMessage(

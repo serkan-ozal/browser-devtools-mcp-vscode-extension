@@ -7,7 +7,6 @@ import {
     trackCursorExtBrowserInstalled,
     type BrowserInstallTelemetryContext,
 } from './telemetry';
-
 const nodeRequire = createRequire(__filename);
 
 /** Same groups as browser-devtools-mcp postinstall.cjs */
@@ -15,7 +14,14 @@ const CHROMIUM_BROWSERS = ['chromium', 'chromium-headless-shell', 'ffmpeg'] as c
 const FIREFOX_BROWSERS = ['firefox'] as const;
 const WEBKIT_BROWSERS = ['webkit'] as const;
 
+const CHROMIUM_BROWSER_NAME_SET: ReadonlySet<string> = new Set(CHROMIUM_BROWSERS);
+
 export type PlaywrightBrowserInstallGroup = 'chromium' | 'firefox' | 'webkit';
+
+/** Telemetry + optional config scope so install failures can offer “use system Chrome”. */
+export type PlaywrightBrowserInstallCallOptions = BrowserInstallTelemetryContext & {
+    configPrefix?: string;
+};
 
 /**
  * Map high-level groups to Playwright registry names passed to installBrowsersForNpmInstall.
@@ -49,6 +55,40 @@ function collectBrowserNames(config: vscode.WorkspaceConfiguration): string[] {
     return browserNamesForGroups(groups);
 }
 
+function namesIncludeChromiumStack(names: string[]): boolean {
+    return names.some((n: string) => CHROMIUM_BROWSER_NAME_SET.has(n));
+}
+
+async function promptUseSystemChromeAfterDownloadFailure(configPrefix: string, errorDetail: string): Promise<void> {
+    const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration(configPrefix);
+    if (config.get<boolean>('browser.useSystemBrowser', false)) {
+        return;
+    }
+    if (config.get<string>('platform', 'browser') !== 'browser') {
+        return;
+    }
+    const detail: string = errorDetail.length > 800 ? `${errorDetail.slice(0, 797)}...` : errorDetail;
+    const choice: 'Use Google Chrome' | 'Not now' | undefined = await vscode.window.showWarningMessage(
+        'Browser DevTools MCP: Playwright browser download failed. Switch to installed Google Chrome for automation? (Google Chrome must be installed on this machine.)',
+        { modal: false, detail },
+        'Use Google Chrome',
+        'Not now'
+    );
+    if (choice !== 'Use Google Chrome') {
+        return;
+    }
+    await config.update('browser.useSystemBrowser', true, vscode.ConfigurationTarget.Global);
+    void vscode.window.showInformationMessage(
+        'Browser DevTools MCP: Using installed Google Chrome. Restart the MCP session or run "Browser DevTools MCP: Restart Server" to apply.'
+    );
+}
+
+export type RunPlaywrightBrowserInstallOptions = {
+    telemetry?: BrowserInstallTelemetryContext;
+    /** When set, a failed Chromium download may prompt to enable `browser.useSystemBrowser`. */
+    configPrefix?: string;
+};
+
 /**
  * Download the given Playwright browser binaries into the default cache.
  * Does not read settings (no platform / system-browser skip).
@@ -57,7 +97,7 @@ function collectBrowserNames(config: vscode.WorkspaceConfiguration): string[] {
 export async function runPlaywrightBrowserInstall(
     extensionPath: string,
     names: string[],
-    telemetry?: BrowserInstallTelemetryContext
+    opts?: RunPlaywrightBrowserInstallOptions
 ): Promise<boolean> {
     if (names.length === 0) {
         return true;
@@ -69,10 +109,10 @@ export async function runPlaywrightBrowserInstall(
         void vscode.window.showErrorMessage(
             'Browser DevTools MCP: playwright-core not found in the extension. Reinstall the extension.'
         );
-        if (telemetry) {
+        if (opts?.telemetry) {
             void trackCursorExtBrowserInstallFailed(
-                telemetry.extensionVersion,
-                telemetry.trigger,
+                opts.telemetry.extensionVersion,
+                opts.telemetry.trigger,
                 'playwright-core not found under extension'
             );
         }
@@ -88,13 +128,15 @@ export async function runPlaywrightBrowserInstall(
         console.warn('[Browser DevTools MCP] Failed to load playwright-core server:', e);
         const msg = e instanceof Error ? e.message : String(e);
         void vscode.window.showErrorMessage(`Browser DevTools MCP: Could not load Playwright installer: ${msg}`);
-        if (telemetry) {
-            void trackCursorExtBrowserInstallFailed(telemetry.extensionVersion, telemetry.trigger, msg);
+        if (opts?.telemetry) {
+            void trackCursorExtBrowserInstallFailed(opts.telemetry.extensionVersion, opts.telemetry.trigger, msg);
         }
         return false;
     }
 
     let ok: boolean = false;
+    let downloadExecutionFailed: boolean = false;
+    let installErrorMessage: string = '';
     await vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
@@ -112,12 +154,15 @@ export async function runPlaywrightBrowserInstall(
                 ok = true;
             } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+                installErrorMessage = msg;
+                downloadExecutionFailed = true;
                 console.error('[Browser DevTools MCP] Playwright browser install failed:', msg);
-                void vscode.window.showWarningMessage(
-                    `Browser DevTools MCP: Playwright browser install failed. ${msg} Try again or check your network / disk space.`
-                );
-                if (telemetry) {
-                    void trackCursorExtBrowserInstallFailed(telemetry.extensionVersion, telemetry.trigger, msg);
+                if (opts?.telemetry) {
+                    void trackCursorExtBrowserInstallFailed(
+                        opts.telemetry.extensionVersion,
+                        opts.telemetry.trigger,
+                        msg
+                    );
                 }
             } finally {
                 if (hadSkip !== undefined) {
@@ -127,8 +172,17 @@ export async function runPlaywrightBrowserInstall(
             progress.report({ message: 'Playwright browser step finished.' });
         }
     );
-    if (ok && telemetry) {
-        void trackCursorExtBrowserInstalled(telemetry.extensionVersion, telemetry.trigger, names.join(','));
+    if (!ok && downloadExecutionFailed && installErrorMessage) {
+        if (opts?.configPrefix && namesIncludeChromiumStack(names)) {
+            await promptUseSystemChromeAfterDownloadFailure(opts.configPrefix, installErrorMessage);
+        } else {
+            void vscode.window.showWarningMessage(
+                `Browser DevTools MCP: Playwright browser install failed. ${installErrorMessage} Try again or check your network / disk space / proxy.`
+            );
+        }
+    }
+    if (ok && opts?.telemetry) {
+        void trackCursorExtBrowserInstalled(opts.telemetry.extensionVersion, opts.telemetry.trigger, names.join(','));
     }
     return ok;
 }
@@ -139,10 +193,16 @@ export async function runPlaywrightBrowserInstall(
 export async function installPlaywrightBrowsersByGroups(
     extensionPath: string,
     groups: PlaywrightBrowserInstallGroup[],
-    telemetry?: BrowserInstallTelemetryContext
+    options?: PlaywrightBrowserInstallCallOptions
 ): Promise<boolean> {
-    const names = browserNamesForGroups(groups);
-    return runPlaywrightBrowserInstall(extensionPath, names, telemetry);
+    const names: string[] = browserNamesForGroups(groups);
+    return runPlaywrightBrowserInstall(extensionPath, names, {
+        telemetry:
+            options !== undefined
+                ? { extensionVersion: options.extensionVersion, trigger: options.trigger }
+                : undefined,
+        configPrefix: options?.configPrefix,
+    });
 }
 
 /**
@@ -164,6 +224,9 @@ export async function ensurePlaywrightBrowsersInstalled(
         return;
     }
 
-    const names = collectBrowserNames(config);
-    await runPlaywrightBrowserInstall(extensionPath, names, telemetry);
+    const names: string[] = collectBrowserNames(config);
+    await runPlaywrightBrowserInstall(extensionPath, names, {
+        telemetry,
+        configPrefix,
+    });
 }

@@ -21,7 +21,7 @@ This extension integrates [browser-devtools-mcp](https://www.npmjs.com/package/b
 - 🎨 **Figma Comparison** - Compare pages with Figma designs
 - 🐛 **Non-Blocking Debugging** - Tracepoints, logpoints, exceptionpoints, watch expressions, probe snapshots
 - ⚡ **Execute** - Batch multiple tool calls in one request via JavaScript and `callTool()`; on browser platform `page` (Playwright Page) is available for `page.evaluate()`, `page.locator()`, etc.
-- 🌐 **Playwright Browsers** - On first install/upgrade, the extension downloads the browsers selected in settings (default: Chromium + headless shell + ffmpeg) into Playwright’s normal cache using `playwright-core`’s installer—no `npx` required. VSIX builds set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` so binaries are not bundled. Run **Browser DevTools MCP: Install Playwright Browsers...** anytime to pick Chromium (default), Firefox, and/or WebKit: it updates `install.chromium` / `install.firefox` / `install.webkit` to match and downloads those engines.
+- 🌐 **Playwright Browsers** - On first install/upgrade, the extension downloads the browsers selected in settings (default: Chromium + headless shell + ffmpeg) into Playwright’s normal cache using `playwright-core`’s installer—no `npx` required. VSIX builds set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` so binaries are not bundled. If that step fails for the Chromium stack, you may be prompted to use installed **Google Chrome** instead (**Use system-installed browser**). Run **Browser DevTools MCP: Install Playwright Browsers...** anytime to pick Chromium (default), Firefox, and/or WebKit: it updates `install.chromium` / `install.firefox` / `install.webkit` to match and downloads those engines.
 - 📦 **MCP Server** - Shipped **inside one universal VSIX** (same artifact for all platforms). The package includes `sharp` + `@img/sharp-wasm32`; native sharp/libvips prebuild variants are excluded from VSIX contents. No npm required at runtime; the extension runs the bundled `browser-devtools-mcp` with `node`.
 
 ## Installation
@@ -95,6 +95,7 @@ The extension uses Playwright’s browser binaries (Chromium, Firefox, WebKit), 
 
 - **Which browsers to install:** In Settings, use `browserDevtoolsMcp.install.chromium`, `install.firefox`, and `install.webkit` (default: Chromium group). On **first install/upgrade**, the extension calls Playwright’s `installBrowsersForNpmInstall` with that selection (unless **Use system-installed browser** is on or platform is Node). Playwright skips work when the chosen builds are already present in the cache (`INSTALLATION_COMPLETE`). Changing these settings triggers another install pass; restart the MCP session if it was already running. **Install Playwright Browsers...** in the Command Palette does the same selection UI and **writes those three settings** to match your choice, then runs the installer (so the sidebar/settings panel stay in sync).
 - **VSIX / CI:** `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is set when packaging so browser ZIPs are not part of the extension.
+- **Download failures (Chromium stack):** If Playwright’s install step fails while the **Chromium group** is requested (network, proxy, firewall, Winldd on Windows, etc.), the extension shows one notification (error text in **details**) and may offer **Use Google Chrome** to enable **Use system-installed browser** (`browserDevtoolsMcp.browser.useSystemBrowser`). **Google Chrome** must be installed on the machine. Firefox/WebKit-only installs get a generic failure message instead. Restart the MCP session (or **Restart Server**) after accepting. You can also turn on **Use system-installed browser** manually in settings anytime.
 
 To skip browser download (e.g. you use a system browser or custom path), set the environment variable `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` before starting VS Code/Cursor.
 
@@ -392,7 +393,7 @@ This unregisters the server, stops any running MCP processes (e.g. Cursor-starte
 
 ### Browser Not Launching
 
-1. Run **Browser DevTools MCP: Install Playwright Browsers...** and ensure **Chromium** (or your engine) is selected, or rely on `install.*` settings on first install/upgrade. Skip download if you use a system browser only.
+1. Run **Browser DevTools MCP: Install Playwright Browsers...** and ensure **Chromium** (or your engine) is selected, or rely on `install.*` settings on first install/upgrade. If the Playwright download fails, enable **Use system-installed browser** in settings or choose **Use Google Chrome** when the extension prompts (Chromium stack only; Chrome must be installed). Skip download if you use a system browser only.
 2. Try disabling headless mode in settings
 3. Check if a custom executable path is needed (e.g. system browser or custom build)
 
