@@ -46,7 +46,7 @@ function readOrCreateConfig(): Config {
                 /* corrupt */
             }
         }
-        let dirty = false;
+        let dirty: boolean = false;
         if (!existing.anonymousId) {
             existing.anonymousId = crypto.randomUUID();
             dirty = true;

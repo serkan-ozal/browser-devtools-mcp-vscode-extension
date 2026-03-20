@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as https from 'node:https';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
@@ -34,8 +35,12 @@ const CURSOR_RULE_STATUS_DURATION_MS = 5000;
 
 /** MCP server name used for Cursor register/unregister and VS Code provider definition. */
 const MCP_SERVER_NAME = 'browser-devtools';
+const EXTENSION_ID = 'serkan-ozal.browser-devtools-mcp-vscode';
 /** CLI arg added when we start the MCP server so we can identify our processes for kill (avoids killing extension host). */
 const CURSOR_MCP_SERVER_ARG = '--cursor-mcp-server';
+const OPEN_VSX_EXTENSION_API_URL = 'https://open-vsx.org/api/serkan-ozal/browser-devtools-mcp-vscode';
+const LAST_UPDATE_PROMPTED_AT_KEY = 'last-update-prompted-at';
+const UPDATE_PROMPT_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 let cachedMcpServerPath: string | null = null;
 
@@ -43,13 +48,13 @@ let cachedMcpServerPath: string | null = null;
 let extensionPathForDeactivate: string | null = null;
 let globalStoragePathForDeactivate: string | null = null;
 let extensionVersionForDeactivate: string = '';
-let uninstallInProgress = false;
+let uninstallInProgress: boolean = false;
 
 /**
  * While true, install.* configuration changes from "Install Playwright Browsers" skip the
  * onDidChangeConfiguration auto-install (that command updates settings and runs install once).
  */
-let suppressConfigDrivenBrowserReinstall = false;
+let suppressConfigDrivenBrowserReinstall: boolean = false;
 
 // Map VS Code settings to environment variables
 const SETTINGS_TO_ENV: Record<string, string> = {
@@ -145,6 +150,92 @@ function getExtensionVersion(context: vscode.ExtensionContext): string {
     return typeof v === 'string' ? v : '';
 }
 
+function compareSemver(a: string, b: string): number {
+    const pa: number[] = a.split('.').map((x) => Number.parseInt(x, 10) || 0);
+    const pb: number[] = b.split('.').map((x) => Number.parseInt(x, 10) || 0);
+    const len: number = Math.max(pa.length, pb.length);
+    for (let i = 0; i < len; i += 1) {
+        const av: number = pa[i] ?? 0;
+        const bv: number = pb[i] ?? 0;
+        if (av > bv) {
+            return 1;
+        }
+        if (av < bv) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+async function fetchLatestPublishedVersion(): Promise<string | null> {
+    return await new Promise((resolve) => {
+        const req = https.get(OPEN_VSX_EXTENSION_API_URL, (res) => {
+            if ((res.statusCode ?? 0) < 200 || (res.statusCode ?? 0) >= 300) {
+                resolve(null);
+                return;
+            }
+            const chunks: Buffer[] = [];
+            res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { version?: string };
+                    resolve(typeof json.version === 'string' ? json.version : null);
+                } catch {
+                    resolve(null);
+                }
+            });
+        });
+        req.on('error', () => resolve(null));
+        req.setTimeout(3000, () => {
+            req.destroy();
+            resolve(null);
+        });
+    });
+}
+
+async function maybePromptExtensionUpdate(context: vscode.ExtensionContext): Promise<void> {
+    if (!isCursor()) {
+        return;
+    }
+    const currentVersion: string = getExtensionVersion(context);
+    if (!currentVersion) {
+        return;
+    }
+
+    const latestVersion: string | null = await fetchLatestPublishedVersion();
+    if (!latestVersion || compareSemver(latestVersion, currentVersion) <= 0) {
+        return;
+    }
+
+    const now: number = Date.now();
+    const lastPromptedAt: number = context.globalState.get<number>(LAST_UPDATE_PROMPTED_AT_KEY, 0);
+    if (now - lastPromptedAt < UPDATE_PROMPT_COOLDOWN_MS) {
+        return;
+    }
+
+    await context.globalState.update(LAST_UPDATE_PROMPTED_AT_KEY, now);
+    const choice: 'Install Update' | 'Later' | undefined = await vscode.window.showInformationMessage(
+        `Browser DevTools MCP update available (${currentVersion} -> ${latestVersion}).`,
+        'Install Update',
+        'Later'
+    );
+    if (choice !== 'Install Update') {
+        return;
+    }
+    try {
+        await vscode.commands.executeCommand('workbench.extensions.installExtension', EXTENSION_ID);
+        void vscode.window.showInformationMessage(
+            'Browser DevTools MCP update installed. Reload the window if needed.'
+        );
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('[Browser DevTools MCP] Failed to install extension update:', msg);
+        void vscode.window.showWarningMessage(
+            `Browser DevTools MCP: Failed to install update automatically. Please update from Extensions. ${msg}`
+        );
+    }
+}
+
 /**
  * Called once on first install or when extension version changes. Copies Cursor rule to ~/.cursor/rules/ so browser automation uses only this MCP.
  */
@@ -238,7 +329,7 @@ async function installBrowsersCommand(context: vscode.ExtensionContext): Promise
         { label: 'WebKit', description: 'WebKit (Safari engine)' },
     ];
 
-    const selected = await vscode.window.showQuickPick(items, {
+    const selected: vscode.QuickPickItem[] | undefined = await vscode.window.showQuickPick(items, {
         title: 'Browser DevTools MCP: Install Playwright browsers',
         placeHolder: 'Space to toggle, Enter to download',
         canPickMany: true,
@@ -263,9 +354,9 @@ async function installBrowsersCommand(context: vscode.ExtensionContext): Promise
         }
     }
 
-    const wantChromium = groups.includes('chromium');
-    const wantFirefox = groups.includes('firefox');
-    const wantWebkit = groups.includes('webkit');
+    const wantChromium: boolean = groups.includes('chromium');
+    const wantFirefox: boolean = groups.includes('firefox');
+    const wantWebkit: boolean = groups.includes('webkit');
 
     const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
     suppressConfigDrivenBrowserReinstall = true;
@@ -274,7 +365,7 @@ async function installBrowsersCommand(context: vscode.ExtensionContext): Promise
         await config.update('install.firefox', wantFirefox, vscode.ConfigurationTarget.Global);
         await config.update('install.webkit', wantWebkit, vscode.ConfigurationTarget.Global);
 
-        const ok = await installPlaywrightBrowsersByGroups(context.extensionPath, groups, {
+        const ok: boolean = await installPlaywrightBrowsersByGroups(context.extensionPath, groups, {
             extensionVersion: getExtensionVersion(context),
             trigger: 'command',
         });
@@ -496,7 +587,7 @@ export async function activate(context: vscode.ExtensionContext) {
     syncTelemetryConfigFromVscodeSetting();
 
     // First run or new version: update globalStorage .extension-version and run onInstall() if needed
-    const didRunExtensionInstall = await runInstallIfNeeded(context);
+    const didRunExtensionInstall: boolean = await runInstallIfNeeded(context);
 
     // before status bar uses it
     context.subscriptions.push(vscode.commands.registerCommand('browserDevtoolsMcp.toggleExtension', toggleExtension));
@@ -518,7 +609,7 @@ export async function activate(context: vscode.ExtensionContext) {
     });
 
     // Register MCP: Cursor uses cursor.mcp.registerServer; VS Code uses lm.registerMcpServerDefinitionProvider (VS Code 1.96+).
-    let mcpServerRegistered = false;
+    let mcpServerRegistered: boolean = false;
     if (isCursor()) {
         mcpServerRegistered = await registerCursorMcp();
     } else if (vscode.lm?.registerMcpServerDefinitionProvider) {
@@ -581,6 +672,8 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         })
     );
+
+    void maybePromptExtensionUpdate(context);
 
     // Watch for configuration changes
     context.subscriptions.push(
@@ -690,7 +783,7 @@ async function runUninstallIfNeeded(mcpServerUnregistered: boolean): Promise<voi
 }
 
 export async function deactivate(): Promise<void> {
-    let mcpServerUnregistered = false;
+    let mcpServerUnregistered: boolean = false;
     if (isCursor()) {
         mcpServerUnregistered = await unregisterCursorMcp();
     }

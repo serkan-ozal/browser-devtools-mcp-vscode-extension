@@ -94,7 +94,7 @@ export async function runPlaywrightBrowserInstall(
         return false;
     }
 
-    let ok = false;
+    let ok: boolean = false;
     await vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
