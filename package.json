@@ -312,6 +312,6 @@
   },
   "dependencies": {
     "@img/sharp-wasm32": "0.34.5",
-    "browser-devtools-mcp": "^0.5.1"
+    "browser-devtools-mcp": "^0.5.2"
   }
 }
