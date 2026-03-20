@@ -15,8 +15,8 @@ import * as https from 'node:https';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-/** Where Playwright browser install was triggered (activate, settings change, or Install Browsers command). */
-export type BrowserInstallTelemetryTrigger = 'activate' | 'settings_change' | 'command';
+/** Where Playwright browser install was triggered (install/upgrade, settings change, or Install Browsers command). */
+export type BrowserInstallTelemetryTrigger = 'install' | 'settings_change' | 'command';
 
 export interface BrowserInstallTelemetryContext {
     extensionVersion: string;

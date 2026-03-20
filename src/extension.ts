@@ -237,25 +237,30 @@ async function maybePromptExtensionUpdate(context: vscode.ExtensionContext): Pro
 }
 
 /**
- * Called once on first install or when extension version changes. Copies Cursor rule to ~/.cursor/rules/ so browser automation uses only this MCP.
+ * Called once on first install or when extension version changes.
+ * Copies Cursor rule to ~/.cursor/rules/ and installs Playwright browsers into the default cache.
  */
 async function onInstall(context: vscode.ExtensionContext): Promise<void> {
     try {
         const source = path.join(context.extensionPath, 'rules', CURSOR_RULE_FILE_NAME);
-        if (!fs.existsSync(source)) {
-            return;
+        if (fs.existsSync(source)) {
+            const destDir = path.join(os.homedir(), '.cursor', 'rules');
+            const dest = path.join(destDir, CURSOR_RULE_FILE_NAME);
+            fs.mkdirSync(destDir, { recursive: true });
+            fs.copyFileSync(source, dest);
+            if (statusBarItem) {
+                statusBarItem.text = '$(globe) Browser DevTools · Cursor rule installed';
+                statusBarItem.tooltip = 'Browser DevTools MCP: Cursor rule added to ~/.cursor/rules';
+                setTimeout(() => updateStatusBar(), CURSOR_RULE_STATUS_DURATION_MS);
+            }
         }
-        const destDir = path.join(os.homedir(), '.cursor', 'rules');
-        const dest = path.join(destDir, CURSOR_RULE_FILE_NAME);
-        fs.mkdirSync(destDir, { recursive: true });
-        fs.copyFileSync(source, dest);
-        if (statusBarItem) {
-            statusBarItem.text = '$(globe) Browser DevTools · Cursor rule installed';
-            statusBarItem.tooltip = 'Browser DevTools MCP: Cursor rule added to ~/.cursor/rules';
-            setTimeout(() => updateStatusBar(), CURSOR_RULE_STATUS_DURATION_MS);
-        }
+
+        await ensurePlaywrightBrowsersInstalled(context.extensionPath, CONFIG_PREFIX, {
+            extensionVersion: getExtensionVersion(context),
+            trigger: 'install',
+        });
     } catch (err) {
-        console.error('[Browser DevTools MCP] Failed to copy Cursor rule to ~/.cursor/rules:', err);
+        console.error('[Browser DevTools MCP] onInstall failed:', err);
         const msg = err instanceof Error ? err.message : String(err);
         void trackCursorExtInstallFailed(
             (context.extension.packageJSON as { version?: string }).version ?? '0.0.0',
@@ -601,12 +606,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Resolve bundled (VSIX) browser-devtools-mcp entrypoint
     await ensureMcpServerInstalled(context);
-
-    // Playwright browsers are not in the VSIX (CI sets PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD); download into default cache on activate.
-    await ensurePlaywrightBrowsersInstalled(context.extensionPath, CONFIG_PREFIX, {
-        extensionVersion: getExtensionVersion(context),
-        trigger: 'activate',
-    });
 
     // Register MCP: Cursor uses cursor.mcp.registerServer; VS Code uses lm.registerMcpServerDefinitionProvider (VS Code 1.96+).
     let mcpServerRegistered: boolean = false;
