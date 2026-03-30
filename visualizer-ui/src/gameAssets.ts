@@ -43,10 +43,11 @@ import forestManWalkingPng from '../public/assets/browser-mcp-chars/Art/Characte
 import forestManChopPng    from '../public/assets/browser-mcp-chars/Art/Characters/ForestMan/forestman-chopping.png?inline';
 
 // ── Hero Tier characters ─────────────────────────────────────────────────────
-// Thor (Tier 1 — 10k tools): electric wait, jumping + throw-hammer nav
+// Thor (Tier 1 — 10k tools): electric wait, flying nav, jumping landing
 import thorElectricPng    from '../public/assets/browser-mcp-chars/Art/Characters/Thor/thor-electric.png?inline';
 import thorJumpingPng     from '../public/assets/browser-mcp-chars/Art/Characters/Thor/thor-jumping.png?inline';
 import thorThrowPng       from '../public/assets/browser-mcp-chars/Art/Characters/Thor/thor-throw-hammer.png?inline';
+import thorFlyingPng      from '../public/assets/browser-mcp-chars/Art/Characters/Thor/thor-flying.png?inline';
 
 // GreyIronMan (Tier 2 — 20k tools): smoke wait, up-fly + cross-fly nav
 import greymanSmokePng    from '../public/assets/browser-mcp-chars/Art/Characters/Greyman/greyman-smoke.png?inline';
@@ -98,6 +99,7 @@ export const ASSET_FLOWERS_WHITE = flowersWhitePng;
 export const ASSET_THOR_ELECTRIC     = thorElectricPng;
 export const ASSET_THOR_JUMPING      = thorJumpingPng;
 export const ASSET_THOR_THROW        = thorThrowPng;
+export const ASSET_THOR_FLYING       = thorFlyingPng;
 export const ASSET_GREYMAN_SMOKE     = greymanSmokePng;
 export const ASSET_GREYMAN_UP_FLY    = greymanUpFlyPng;
 export const ASSET_GREYMAN_CROSS_FLY = greymanCrossFlyPng;

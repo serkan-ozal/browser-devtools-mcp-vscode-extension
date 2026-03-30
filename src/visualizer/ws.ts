@@ -63,9 +63,6 @@ let wssInstance: WebSocketServer | null = null;
 let idleCloseTimer: NodeJS.Timeout | null = null;
 let portRetrying = false;
 
-/** Idle close timeout in ms (0 = disabled). Set via startVisualizerWs options. */
-let configuredIdleCloseMs = 0;
-
 /** Called once when the first run_started event is received. */
 let onRunStartedCallback: (() => void) | null = null;
 
@@ -122,14 +119,6 @@ function clearIdleCloseTimer(): void {
     }
 }
 
-function scheduleIdleClose(): void {
-    if (configuredIdleCloseMs <= 0) return;
-    clearIdleCloseTimer();
-    idleCloseTimer = setTimeout(() => {
-        idleCloseTimer = null;
-        void closeVisualizer();
-    }, configuredIdleCloseMs);
-}
 
 process.on('exit', syncClose);
 
@@ -138,11 +127,9 @@ process.on('exit', syncClose);
  */
 export function startVisualizerWs(opts: {
     port?: number;
-    idleCloseMs?: number;
     onRunStarted?: () => void;
 } = {}): WebSocketServer | null {
     const wsPort = opts.port ?? 3020;
-    if (opts.idleCloseMs !== undefined) configuredIdleCloseMs = opts.idleCloseMs;
     if (opts.onRunStarted !== undefined) onRunStartedCallback = opts.onRunStarted;
     if (wssInstance !== null) return wssInstance;
 
@@ -185,20 +172,8 @@ export function startVisualizerWs(opts: {
                         for (const other of wss.clients) {
                             if (other !== ws && other.readyState === 1) other.send(rawStr);
                         }
-                        const evType = message.type as string;
-                        if (evType === 'tool_started' || evType === 'run_started') {
-                            clearIdleCloseTimer();
-                        } else if (evType === 'tool_finished' || evType === 'error') {
-                            clearIdleCloseTimer();
-                            idleCloseTimer = setTimeout(() => { idleCloseTimer = null; void closeVisualizer(); }, 120_000);
-                        } else if (evType === 'run_done') {
-                            scheduleIdleClose();
-                        } else if (evType === 'agent_response') {
-                            clearIdleCloseTimer();
-                            if (configuredIdleCloseMs > 0) {
-                                idleCloseTimer = setTimeout(() => { idleCloseTimer = null; void closeVisualizer(); }, 300_000);
-                            }
-                        }
+                        // WS sunucusu yalnızca "Close" butonu veya extension host
+                        // kapandığında kapanır — idle timer yok.
                     }
                 } catch { /* ignore malformed */ }
             });
@@ -224,5 +199,10 @@ export function closeVisualizer(): Promise<void> {
     if (wssInstance === null) return Promise.resolve();
     const wss = wssInstance;
     wssInstance = null;
+    // Force-terminate all connected clients (Phaser UI, hook scripts) so the
+    // server closes immediately without waiting for graceful handshakes.
+    for (const client of wss.clients) {
+        try { client.terminate(); } catch { /* ignore */ }
+    }
     return new Promise((resolve) => wss.close(() => resolve()));
 }

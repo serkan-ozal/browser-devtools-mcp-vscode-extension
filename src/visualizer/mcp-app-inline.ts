@@ -69,6 +69,7 @@ export function getVisualizerAppHtml(wsPort: number, extensionPath: string): str
   <div class="hud">
     <div><span class="dot" id="dot"></span><strong>Browser DevTools MCP</strong><span id="status">Connecting…</span></div>
     <div><strong>Run</strong><span id="run">—</span></div>
+    <div><strong>Last event:</strong><span id="last-event" style="color:#79c0ff">—</span></div>
     <div class="hud-spacer"></div>
     <button id="close-btn" class="close-btn" type="button">Close</button>
   </div>
@@ -83,10 +84,11 @@ export function getVisualizerAppHtml(wsPort: number, extensionPath: string): str
 
   <script>
 (function(){
-  var dotEl  = document.getElementById('dot');
-  var statEl = document.getElementById('status');
-  var runEl  = document.getElementById('run');
-  var closeEl= document.getElementById('close-btn');
+  var dotEl      = document.getElementById('dot');
+  var statEl     = document.getElementById('status');
+  var runEl      = document.getElementById('run');
+  var lastEvEl   = document.getElementById('last-event');
+  var closeEl    = document.getElementById('close-btn');
   var WS_URL = ${JSON.stringify(wsUrl)};
   var closed = false;
 
@@ -114,6 +116,9 @@ export function getVisualizerAppHtml(wsPort: number, extensionPath: string): str
         try{data=JSON.parse(e.data);}catch(_){return;}
         if(!data||!data.type) return;
         if(data.runId) runEl.textContent=data.runId.slice(0,8)+'…';
+        // Debug: show last event type + toolName in HUD
+        var label = data.type + (data.toolName ? ':'+data.toolName : '');
+        lastEvEl.textContent = label;
       };
     }catch(_){setConn(false);if(!closed){setTimeout(connect,3000);}}
   }

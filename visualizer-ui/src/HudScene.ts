@@ -138,6 +138,11 @@ export class HudScene extends Phaser.Scene implements HudContext {
   /** True when the last click tool was interaction_click/browser_click — routes stop to MC/hero. */
   private lastClickWasNav = false;
 
+  /** True while a nav/click tool that drives the hero is still active (started but not yet stopped). */
+  private heroNavActive = false;
+  /** Tool name of the currently active hero navigation, if any. */
+  private heroNavToolName: string | undefined = undefined;
+
   // ── Character modules ─────────────────────────────────────────────────────
   private forestMan!: ForestManCharacter;
   private explorer!: ExplorerCharacter;
@@ -1243,6 +1248,10 @@ export class HudScene extends Phaser.Scene implements HudContext {
         const c = this.mainChar.getContainer();
         if (c) c.setVisible(false);
       });
+      // If a nav/click tool is still running, resume the hero animation immediately.
+      if (this.heroNavActive) {
+        this.heroChar.startNavigation(this.heroNavToolName);
+      }
     }
 
     this.lockedPreviews.refresh();
@@ -1251,6 +1260,8 @@ export class HudScene extends Phaser.Scene implements HudContext {
   // ── Visual state reset ────────────────────────────────────────────────────
 
   private resetRunVisualState(runId: string | null): void {
+    this.heroNavActive = false;
+    this.heroNavToolName = undefined;
     this.resetOverlayState();
     this.clearParchmentResp();
     this.tweens.resumeAll();
@@ -1425,6 +1436,8 @@ export class HudScene extends Phaser.Scene implements HudContext {
         const isDirectClick = toolName === 'interaction_click' || toolName === 'browser_click';
         this.lastClickWasNav = isDirectClick;
         if (isDirectClick) {
+          this.heroNavActive = true;
+          this.heroNavToolName = toolName;
           this.cancelStopTimer('mcStopTimer');
           this.mainChar.actionStartTs = Date.now();
           this.mainChar.startNavigation(toolName);
@@ -1438,6 +1451,8 @@ export class HudScene extends Phaser.Scene implements HudContext {
 
       // Navigation tool → MC / hero navigation
       if (isNavTool) {
+        this.heroNavActive = true;
+        this.heroNavToolName = toolName;
         this.cancelStopTimer('mcStopTimer');
         this.mainChar.actionStartTs = Date.now();
         this.mainChar.startNavigation(toolName);
@@ -1494,12 +1509,20 @@ export class HudScene extends Phaser.Scene implements HudContext {
       } else if (isClickTool) {
         if (this.lastClickWasNav) {
           this.lastClickWasNav = false;
-          this.scheduleStop('mcStopTimer', this.mainChar.actionStartTs, () => this.mainChar.stopAction());
+          this.scheduleStop('mcStopTimer', this.mainChar.actionStartTs, () => {
+            this.heroNavActive = false;
+            this.heroNavToolName = undefined;
+            this.mainChar.stopAction();
+          });
         } else {
           this.scheduleStop('fmStopTimer', this.forestMan.actionStartTs, () => this.forestMan.stopChop());
         }
       } else if (isNavTool) {
-        this.scheduleStop('mcStopTimer', this.mainChar.actionStartTs, () => this.mainChar.stopAction());
+        this.scheduleStop('mcStopTimer', this.mainChar.actionStartTs, () => {
+          this.heroNavActive = false;
+          this.heroNavToolName = undefined;
+          this.mainChar.stopAction();
+        });
       } else {
         if (isContentTool) {
           this.requestStopAction(CONTENT_AGENT_ID);

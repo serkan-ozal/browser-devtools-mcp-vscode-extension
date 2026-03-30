@@ -91,8 +91,19 @@ export const HERO_TIER_THRESHOLDS = [0, 100, 250, 500] as const;
 export const THOR_ELECTRIC_KEY  = 'thor_electric';
 export const THOR_JUMPING_KEY   = 'thor_jumping';
 export const THOR_THROW_KEY     = 'thor_throw';
+export const THOR_FLYING_KEY    = 'thor_flying';
+export const THOR_FLY_FW        = 48;   // thor-flying.png: 768×48 → 16 frames of 48×48
+export const THOR_FLY_FH        = 48;
 export const THOR_ANIM_ELECTRIC = 'thor_anim_electric';
 export const THOR_ANIM_JUMPING  = 'thor_anim_jumping';
+export const THOR_ANIM_FLY      = 'thor_anim_fly';
+
+/** 3 landing spots Thor cycles through on each navigation (stays there, never returns home). */
+export const THOR_LANDING_SPOTS: Pt[] = [
+  { x: 590, y: 195 },  // Spot A – upper centre-right
+  { x: 670, y: 345 },  // Spot B – right side
+  { x: 220, y: 400 },  // Spot C – left side
+];
 
 // GreyIronMan — Tier 2
 export const GREY_SMOKE_KEY      = 'grey_smoke';

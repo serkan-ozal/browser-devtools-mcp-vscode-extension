@@ -35,10 +35,10 @@ node_modules/**/examples/**
 !**/node_modules/sharp/**
 !**/node_modules/@img/sharp-wasm32/**
 
-# Visualizer UI: include source + built dist, exclude node_modules
+# Cursor hooks bridge script (installed to workspace .cursor/ on visualizer enable)
+!scripts/**
+
+# Visualizer UI: only the Vite-built output is needed at runtime
 visualizer-ui/node_modules/**
-!visualizer-ui/src/**
+visualizer-ui/src/**
 !visualizer-ui/dist/**
-!visualizer-ui/package.json
-!visualizer-ui/vite.config.ts
-!visualizer-ui/tsconfig.json

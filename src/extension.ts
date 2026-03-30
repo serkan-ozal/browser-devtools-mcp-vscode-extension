@@ -261,6 +261,124 @@ async function maybePromptExtensionUpdate(context: vscode.ExtensionContext): Pro
     }
 }
 
+// ── Cursor Hooks bridge ──────────────────────────────────────────────────────
+
+/** Hook events the visualizer listens for. */
+const HOOK_EVENTS = [
+    'sessionStart',
+    'beforeMCPExecution',
+    'afterMCPExecution',
+    'preToolUse',
+    'postToolUse',
+    'afterAgentResponse',
+    'stop',
+] as const;
+
+/** Marker used to identify hook entries installed by this extension. */
+const HOOK_SCRIPT_NAME = 'browser-devtools-hook.mjs';
+
+interface HookEntry {
+    type: string;
+    command: string;
+    timeout: number;
+    failClosed: boolean;
+}
+
+interface HooksConfig {
+    version: number;
+    hooks: Record<string, HookEntry[]>;
+}
+
+/**
+ * Copy cursor-hook.mjs to <workspace>/.cursor/scripts/ and merge hook entries
+ * into <workspace>/.cursor/hooks.json. Existing third-party entries are preserved.
+ */
+function installCursorHooks(workspaceFolder: string, hookScriptSrc: string): void {
+    try {
+        const cursorDir = path.join(workspaceFolder, '.cursor');
+        const scriptsDir = path.join(cursorDir, 'scripts');
+        const hookDest = path.join(scriptsDir, HOOK_SCRIPT_NAME);
+        const hooksFile = path.join(cursorDir, 'hooks.json');
+
+        fs.mkdirSync(scriptsDir, { recursive: true });
+        fs.copyFileSync(hookScriptSrc, hookDest);
+
+        let config: HooksConfig = { version: 1, hooks: {} };
+        if (fs.existsSync(hooksFile)) {
+            try {
+                config = JSON.parse(fs.readFileSync(hooksFile, 'utf8')) as HooksConfig;
+            } catch { /* use default */ }
+        }
+        if (!config.hooks) config.hooks = {};
+
+        const command = `node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`;
+        const entry: HookEntry = { type: 'command', command, timeout: 5, failClosed: false };
+
+        for (const event of HOOK_EVENTS) {
+            if (!config.hooks[event]) config.hooks[event] = [];
+            // Remove stale entries from a previous install, then append fresh one
+            config.hooks[event] = config.hooks[event].filter((h) => !h.command.includes(HOOK_SCRIPT_NAME));
+            config.hooks[event].push(entry);
+        }
+
+        fs.writeFileSync(hooksFile, JSON.stringify(config, null, 2) + '\n', 'utf8');
+        console.log('[Browser DevTools MCP] Cursor hooks installed in', workspaceFolder);
+    } catch (err) {
+        console.warn('[Browser DevTools MCP] Failed to install Cursor hooks:', err);
+    }
+}
+
+/**
+ * Remove hook entries and the copied script from <workspace>/.cursor/.
+ * hooks.json is deleted only if it becomes empty after removal.
+ */
+function removeCursorHooks(workspaceFolder: string): void {
+    try {
+        const cursorDir = path.join(workspaceFolder, '.cursor');
+        const hookDest = path.join(cursorDir, 'scripts', HOOK_SCRIPT_NAME);
+        const hooksFile = path.join(cursorDir, 'hooks.json');
+
+        if (fs.existsSync(hookDest)) fs.unlinkSync(hookDest);
+
+        if (fs.existsSync(hooksFile)) {
+            let config: HooksConfig;
+            try {
+                config = JSON.parse(fs.readFileSync(hooksFile, 'utf8')) as HooksConfig;
+            } catch {
+                return;
+            }
+            for (const event of Object.keys(config.hooks ?? {})) {
+                config.hooks[event] = (config.hooks[event] ?? []).filter((h) => !h.command.includes(HOOK_SCRIPT_NAME));
+                if (config.hooks[event].length === 0) delete config.hooks[event];
+            }
+            if (Object.keys(config.hooks ?? {}).length === 0) {
+                fs.unlinkSync(hooksFile);
+            } else {
+                fs.writeFileSync(hooksFile, JSON.stringify(config, null, 2) + '\n', 'utf8');
+            }
+        }
+        console.log('[Browser DevTools MCP] Cursor hooks removed from', workspaceFolder);
+    } catch (err) {
+        console.warn('[Browser DevTools MCP] Failed to remove Cursor hooks:', err);
+    }
+}
+
+/**
+ * Install or remove Cursor hooks in every open workspace folder.
+ */
+function syncCursorHooks(extensionPath: string, enable: boolean): void {
+    const hookSrc = path.join(extensionPath, 'scripts', 'cursor-hook.mjs');
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+        if (enable) {
+            installCursorHooks(folder.uri.fsPath, hookSrc);
+        } else {
+            removeCursorHooks(folder.uri.fsPath);
+        }
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+
 /**
  * Called once on first install or when extension version changes.
  * Copies Cursor rule to ~/.cursor/rules/ and installs Playwright browsers into the default cache.
@@ -436,15 +554,6 @@ function getMcpServerConfig(): {
     for (const [key, value] of Object.entries(settingsEnv)) {
         if (value !== undefined && typeof value === 'string') {
             mergedEnv[key] = value;
-        }
-    }
-    // When visualizer is enabled, wrap the MCP server with the bridge so it
-    // can forward tool-call events to the visualizer WebSocket server.
-    const visualizerEnabled = vscode.workspace.getConfiguration(CONFIG_PREFIX).get<boolean>('visualizer.enable', false);
-    if (visualizerEnabled && extensionPathForDeactivate) {
-        const bridgePath = path.join(extensionPathForDeactivate, 'dist', 'visualizer', 'mcp-bridge.js');
-        if (fs.existsSync(bridgePath)) {
-            return { command: 'node', args: [bridgePath, cachedMcpServerPath, CURSOR_MCP_SERVER_ARG], env: mergedEnv };
         }
     }
     return { command: 'node', args: [cachedMcpServerPath, CURSOR_MCP_SERVER_ARG], env: mergedEnv };
@@ -719,7 +828,8 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // Start visualizer WebSocket server if enabled; panel auto-opens on first MCP run_started event
+    // Start visualizer WebSocket server + install Cursor hooks if enabled
+    // Panel auto-opens on first run_started event from the hooks bridge
     const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
     if (config.get<boolean>('visualizer.enable', false)) {
         const wsPort = config.get<number>('visualizer.wsPort', 3020);
@@ -727,6 +837,7 @@ export async function activate(context: vscode.ExtensionContext) {
             port: wsPort,
             onRunStarted: () => showVisualizerPanel(context, wsPort),
         });
+        syncCursorHooks(context.extensionPath, true);
     }
 
     // Watch for configuration changes
@@ -765,6 +876,19 @@ export async function activate(context: vscode.ExtensionContext) {
                     vscode.window.showInformationMessage(
                         'Browser DevTools MCP: Browser install settings changed. Browsers are being updated; restart the MCP session if it was already running.'
                     );
+                } else if (e.affectsConfiguration(`${CONFIG_PREFIX}.visualizer.enable`)) {
+                    const vizEnabled = vscode.workspace.getConfiguration(CONFIG_PREFIX).get<boolean>('visualizer.enable', false);
+                    if (vizEnabled) {
+                        const wsPort = vscode.workspace.getConfiguration(CONFIG_PREFIX).get<number>('visualizer.wsPort', 3020);
+                        startVisualizerWs({
+                            port: wsPort,
+                            onRunStarted: () => showVisualizerPanel(context, wsPort),
+                        });
+                        syncCursorHooks(context.extensionPath, true);
+                    } else {
+                        void closeVisualizer();
+                        syncCursorHooks(context.extensionPath, false);
+                    }
                 } else if (e.affectsConfiguration(`${CONFIG_PREFIX}.telemetry.enable`)) {
                     syncTelemetryConfigFromVscodeSetting();
                 } else {
@@ -789,6 +913,11 @@ export async function activate(context: vscode.ExtensionContext) {
  * Called when this process successfully deleted .extension-version in runUninstallIfNeeded (so only one process calls it when many deactivate concurrently).
  */
 async function onUninstall(mcpServerUnregistered: boolean): Promise<void> {
+    // Remove Cursor hooks from all open workspace folders
+    if (extensionPathForDeactivate) {
+        syncCursorHooks(extensionPathForDeactivate, false);
+    }
+
     try {
         const rulePath = path.join(os.homedir(), '.cursor', 'rules', CURSOR_RULE_FILE_NAME);
         if (fs.existsSync(rulePath)) {

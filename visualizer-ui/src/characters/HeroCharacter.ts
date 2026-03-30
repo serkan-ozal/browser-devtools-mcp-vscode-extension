@@ -5,6 +5,7 @@ import {
   ASSET_THOR_ELECTRIC,
   ASSET_THOR_JUMPING,
   ASSET_THOR_THROW,
+  ASSET_THOR_FLYING,
   ASSET_GREYMAN_SMOKE,
   ASSET_GREYMAN_UP_FLY,
   ASSET_GREYMAN_CROSS_FLY,
@@ -27,8 +28,13 @@ import {
   THOR_ELECTRIC_KEY,
   THOR_JUMPING_KEY,
   THOR_THROW_KEY,
+  THOR_FLYING_KEY,
+  THOR_FLY_FW,
+  THOR_FLY_FH,
   THOR_ANIM_ELECTRIC,
   THOR_ANIM_JUMPING,
+  THOR_ANIM_FLY,
+  THOR_LANDING_SPOTS,
   GREY_SMOKE_KEY,
   GREY_UP_FLY_KEY,
   GREY_CROSS_FLY_KEY,
@@ -50,6 +56,8 @@ export class HeroCharacter {
   label: Phaser.GameObjects.Text | null = null;
   navigating = false;
   tween: Phaser.Tweens.Tween | null = null;
+  /** Index of the next Thor landing spot (cycles 0→1→2→0…). */
+  private thorLandingIdx = 0;
 
   constructor(
     private scene: Phaser.Scene,
@@ -57,9 +65,10 @@ export class HeroCharacter {
   ) {}
 
   preload(): void {
-    this.scene.load.spritesheet(THOR_ELECTRIC_KEY,  ASSET_THOR_ELECTRIC,     { frameWidth: HERO_FW, frameHeight: HERO_FH });
-    this.scene.load.spritesheet(THOR_JUMPING_KEY,   ASSET_THOR_JUMPING,      { frameWidth: HERO_FW, frameHeight: HERO_FH });
-    this.scene.load.spritesheet(THOR_THROW_KEY,     ASSET_THOR_THROW,        { frameWidth: HERO_FW, frameHeight: HERO_FH });
+    this.scene.load.spritesheet(THOR_ELECTRIC_KEY,  ASSET_THOR_ELECTRIC,  { frameWidth: HERO_FW,    frameHeight: HERO_FH    });
+    this.scene.load.spritesheet(THOR_JUMPING_KEY,   ASSET_THOR_JUMPING,   { frameWidth: HERO_FW,    frameHeight: HERO_FH    });
+    this.scene.load.spritesheet(THOR_THROW_KEY,     ASSET_THOR_THROW,     { frameWidth: HERO_FW,    frameHeight: HERO_FH    });
+    this.scene.load.spritesheet(THOR_FLYING_KEY,    ASSET_THOR_FLYING,    { frameWidth: THOR_FLY_FW, frameHeight: THOR_FLY_FH });
     this.scene.load.spritesheet(GREY_SMOKE_KEY,     ASSET_GREYMAN_SMOKE,     { frameWidth: HERO_FW, frameHeight: HERO_FH });
     this.scene.load.spritesheet(GREY_UP_FLY_KEY,    ASSET_GREYMAN_UP_FLY,    { frameWidth: HERO_FW, frameHeight: HERO_FH });
     this.scene.load.spritesheet(GREY_CROSS_FLY_KEY, ASSET_GREYMAN_CROSS_FLY, { frameWidth: HERO_FW, frameHeight: HERO_FH });
@@ -73,7 +82,10 @@ export class HeroCharacter {
       this.scene.anims.create({ key: THOR_ANIM_ELECTRIC, frames: this.scene.anims.generateFrameNumbers(THOR_ELECTRIC_KEY, { start: 0, end: 15 }), frameRate: 12, repeat: -1 });
     }
     if (!this.scene.anims.exists(THOR_ANIM_JUMPING)) {
-      this.scene.anims.create({ key: THOR_ANIM_JUMPING,  frames: this.scene.anims.generateFrameNumbers(THOR_JUMPING_KEY,  { start: 0, end: 15 }), frameRate: 12, repeat: -1 });
+      this.scene.anims.create({ key: THOR_ANIM_JUMPING,  frames: this.scene.anims.generateFrameNumbers(THOR_JUMPING_KEY,  { start: 0, end: 15 }), frameRate: 12, repeat: 0  });
+    }
+    if (!this.scene.anims.exists(THOR_ANIM_FLY)) {
+      this.scene.anims.create({ key: THOR_ANIM_FLY,      frames: this.scene.anims.generateFrameNumbers(THOR_FLYING_KEY,   { start: 0, end: 15 }), frameRate: 14, repeat: -1 });
     }
     if (!this.scene.anims.exists('thor_anim_throw')) {
       this.scene.anims.create({ key: 'thor_anim_throw',  frames: this.scene.anims.generateFrameNumbers(THOR_THROW_KEY,    { start: 0, end: 15 }), frameRate: 12, repeat: 0  });
@@ -140,6 +152,7 @@ export class HeroCharacter {
     if (this.sprite) { this.sprite.destroy(); this.sprite = null; }
     if (this.label)  { this.label.destroy();  this.label  = null; }
     this.navigating = false;
+    this.thorLandingIdx = 0;
   }
 
   /** Map a tool name to a short action label shown above the hero. */
@@ -175,8 +188,39 @@ export class HeroCharacter {
     const char = this.ctx.getSelectedCharacter();
 
     if (char === 'thor') {
-      // Thor: looping jump animation while navigating
-      this.sprite.play(THOR_ANIM_JUMPING, true);
+      // Thor: fly to next landing spot → jump-land animation → stay there
+      const target = THOR_LANDING_SPOTS[this.thorLandingIdx % THOR_LANDING_SPOTS.length];
+      this.thorLandingIdx = (this.thorLandingIdx + 1) % THOR_LANDING_SPOTS.length;
+
+      this.sprite.play(THOR_ANIM_FLY, true);
+      this.sprite.setFlipX(target.x < this.sprite.x);
+      if (this.tween) { this.tween.stop(); this.tween = null; }
+
+      const dist = Phaser.Math.Distance.Between(this.sprite.x, this.sprite.y, target.x, target.y);
+      const flyDur = Math.max(500, (dist / (WALK_SPEED * 2)) * 1000);
+
+      this.tween = this.scene.tweens.add({
+        targets: this.sprite,
+        x: target.x,
+        y: target.y,
+        duration: flyDur,
+        ease: 'Sine.easeInOut',
+        onUpdate: () => {
+          if (this.label && this.sprite) {
+            this.label.setPosition(this.sprite.x, this.sprite.y + HERO_LABEL_OFFSET_Y);
+          }
+        },
+        onComplete: () => {
+          this.tween = null;
+          if (!this.sprite) return;
+          // Land: play jump animation once, then switch to electric idle
+          this.sprite.setFlipX(false);
+          this.sprite.play(THOR_ANIM_JUMPING, true);
+          this.sprite.once('animationcomplete', () => {
+            if (this.sprite) this.sprite.play(THOR_ANIM_ELECTRIC, true);
+          });
+        },
+      });
     } else if (char === 'grey') {
       // GreyIronMan: rise then fly through navigation waypoints
       this.sprite.play(GREY_ANIM_UP_FLY, true);
@@ -258,7 +302,10 @@ export class HeroCharacter {
     if (this.label) this.label.setText(this.getName());
 
     const char = this.ctx.getSelectedCharacter();
-    if (char === 'grey') {
+    if (char === 'thor') {
+      // Thor stays wherever he landed — just settle into electric idle
+      this.sprite.play(THOR_ANIM_ELECTRIC, true);
+    } else if (char === 'grey') {
       // GreyIronMan: fly home using smoke animation
       this.idleAnim();
       this.tween = this.scene.tweens.add({
