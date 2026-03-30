@@ -185,7 +185,12 @@ export class HeroCharacter {
     if (toolName === 'browser_wait_for')      return 'Waiting...';
     if (toolName === 'browser_drag')          return 'Dragging...';
     if (toolName === 'browser_hover')         return 'Hovering...';
-    if (toolName === 'interaction_click' || toolName === 'browser_click') return 'Clicked!';
+    if (toolName === 'browser_fill'   ||
+        toolName === 'browser_type'   ||
+        toolName === 'browser_scroll' ||
+        toolName === 'browser_select_option' ||
+        toolName === 'execute')               return 'Route Change';
+    if (toolName.startsWith('interaction_'))  return 'Route Change';
     return 'Navigating...';
   }
 

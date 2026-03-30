@@ -102,6 +102,8 @@ let statusBarItem: vscode.StatusBarItem;
 // Visualizer panel (singleton)
 let visualizerPanel: vscode.WebviewPanel | undefined;
 
+const SELECTED_CHAR_KEY = 'visualizer.selectedChar';
+
 function showVisualizerPanel(context: vscode.ExtensionContext, wsPort: number): void {
     if (visualizerPanel) {
         visualizerPanel.reveal(vscode.ViewColumn.Two);
@@ -116,7 +118,23 @@ function showVisualizerPanel(context: vscode.ExtensionContext, wsPort: number): 
             retainContextWhenHidden: true,
         }
     );
-    visualizerPanel.webview.html = getVisualizerAppHtml(wsPort, context.extensionPath);
+    const savedChar = context.globalState.get<string>(SELECTED_CHAR_KEY);
+    visualizerPanel.webview.html = getVisualizerAppHtml(wsPort, context.extensionPath, savedChar);
+
+    // Persist character selection when the webview sends a save_char message
+    visualizerPanel.webview.onDidReceiveMessage(
+        (msg: unknown) => {
+            if (msg && typeof msg === 'object' && (msg as Record<string, unknown>).type === 'save_char') {
+                const char = (msg as Record<string, unknown>).char;
+                if (typeof char === 'string') {
+                    void context.globalState.update(SELECTED_CHAR_KEY, char);
+                }
+            }
+        },
+        undefined,
+        context.subscriptions,
+    );
+
     visualizerPanel.onDidDispose(() => { visualizerPanel = undefined; }, null, context.subscriptions);
 }
 
@@ -818,12 +836,18 @@ export async function activate(context: vscode.ExtensionContext) {
 
     void maybePromptExtensionUpdate(context);
 
-    // Register Show Visualizer command
+    // Register Show Visualizer command — only works when visualizer.enable is true
     context.subscriptions.push(
         vscode.commands.registerCommand('browserDevtoolsMcp.showVisualizer', () => {
             const cfg = vscode.workspace.getConfiguration(CONFIG_PREFIX);
+            if (!cfg.get<boolean>('visualizer.enable', false)) {
+                void vscode.window.showInformationMessage(
+                    'MCP Visualizer is disabled. Enable it in settings (browserDevtoolsMcp.visualizer.enable) first.',
+                );
+                return;
+            }
             const wsPort = cfg.get<number>('visualizer.wsPort', 3020);
-            startVisualizerWs({ port: wsPort });
+            startVisualizerWs({ port: wsPort, getSelectedChar: () => context.globalState.get<string>(SELECTED_CHAR_KEY) });
             showVisualizerPanel(context, wsPort);
         })
     );
@@ -836,6 +860,7 @@ export async function activate(context: vscode.ExtensionContext) {
         startVisualizerWs({
             port: wsPort,
             onRunStarted: () => showVisualizerPanel(context, wsPort),
+            getSelectedChar: () => context.globalState.get<string>(SELECTED_CHAR_KEY),
         });
         syncCursorHooks(context.extensionPath, true);
     }
@@ -883,6 +908,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         startVisualizerWs({
                             port: wsPort,
                             onRunStarted: () => showVisualizerPanel(context, wsPort),
+                            getSelectedChar: () => context.globalState.get<string>(SELECTED_CHAR_KEY),
                         });
                         syncCursorHooks(context.extensionPath, true);
                     } else {

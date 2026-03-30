@@ -6,7 +6,7 @@ import path from 'node:path';
  * returns it as an inline <script type="module"> tag.
  * Returns null if the dist is not built yet.
  */
-function loadVisualizerBundle(wsPort: number, extensionPath: string): string | null {
+function loadVisualizerBundle(wsPort: number, extensionPath: string, savedChar?: string): string | null {
     try {
         const distDir = path.join(extensionPath, 'visualizer-ui', 'dist');
         const indexHtml = fs.readFileSync(path.join(distDir, 'index.html'), 'utf8');
@@ -15,8 +15,9 @@ function loadVisualizerBundle(wsPort: number, extensionPath: string): string | n
         const jsRel = match[1].replace(/^\//, '');
         const jsCode = fs.readFileSync(path.join(distDir, jsRel), 'utf8');
         // Set globals before the module executes
+        const charJson = savedChar ? JSON.stringify(savedChar) : 'undefined';
         return [
-            `<script>window.VIS_WS_PORT = ${wsPort};</script>`,
+            `<script>window.VIS_WS_PORT = ${wsPort}; window.__savedChar = ${charJson};</script>`,
             `<script type="module">`,
             jsCode,
             `</script>`,
@@ -26,9 +27,9 @@ function loadVisualizerBundle(wsPort: number, extensionPath: string): string | n
     }
 }
 
-export function getVisualizerAppHtml(wsPort: number, extensionPath: string): string {
+export function getVisualizerAppHtml(wsPort: number, extensionPath: string, savedChar?: string): string {
     const wsUrl = `ws://localhost:${wsPort}`;
-    const phaserBundle = loadVisualizerBundle(wsPort, extensionPath);
+    const phaserBundle = loadVisualizerBundle(wsPort, extensionPath, savedChar);
 
     return `<!DOCTYPE html>
 <html lang="en">

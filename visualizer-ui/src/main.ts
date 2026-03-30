@@ -111,6 +111,32 @@ function requestShutdown(): void {
   markVisualizerClosed();
 }
 
+let vscodeApi: { postMessage(msg: unknown): void } | null = null;
+function getVscodeApi(): { postMessage(msg: unknown): void } | null {
+  if (vscodeApi) return vscodeApi;
+  try {
+    const acquire = (window as unknown as Record<string, unknown>)['acquireVsCodeApi'];
+    if (typeof acquire === 'function') {
+      vscodeApi = (acquire as () => typeof vscodeApi)();
+    }
+  } catch { /* not in VS Code webview */ }
+  return vscodeApi;
+}
+
+function sendCharToExtension(char: string): void {
+  // VS Code webview: postMessage to extension host to persist via globalState
+  const api = getVscodeApi();
+  if (api) {
+    try { api.postMessage({ type: 'save_char', char }); return; } catch { /* ignore */ }
+  }
+  // Fallback: send via WS (e.g. in demo/test mode)
+  if (ws?.readyState === WebSocket.OPEN) {
+    try { ws.send(JSON.stringify({ type: 'control', action: 'save_char', char })); } catch { /* ignore */ }
+  }
+}
+
+(window as unknown as Record<string, unknown>)['sendCharToServer'] = sendCharToExtension;
+
 /**
  * Build a clean human-readable summary for the notebook.
  * Shows tool list, duration, error count and a short snippet of last output.
@@ -252,7 +278,11 @@ async function start(): Promise<void> {
               // hello is meta — not a game event, handle separately and don't push to eventQueue
               if (type === 'hello') {
                 const count = (event as { totalToolsUsed?: number }).totalToolsUsed ?? 0;
-                scene.setTotalToolsUsed(count);
+                // Prefer injected HTML var (from globalState via extension), fallback to WS hello
+                const injected = (window as unknown as Record<string, unknown>)['__savedChar'];
+                const fromHello = (event as { selectedChar?: string }).selectedChar;
+                const savedChar = (typeof injected === 'string' ? injected : fromHello);
+                scene.setTotalToolsUsed(count, true, savedChar);
                 return;
               }
 

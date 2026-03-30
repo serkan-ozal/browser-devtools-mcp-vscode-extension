@@ -31,8 +31,8 @@ function incrementToolCount(): number {
     return stats.totalToolsUsed;
 }
 
-function buildHelloMessage(): string {
-    return JSON.stringify({ type: 'hello', version: 1, totalToolsUsed: readStats().totalToolsUsed });
+function buildHelloMessage(selectedChar?: string): string {
+    return JSON.stringify({ type: 'hello', version: 1, totalToolsUsed: readStats().totalToolsUsed, selectedChar });
 }
 
 /**
@@ -122,15 +122,19 @@ function clearIdleCloseTimer(): void {
 
 process.on('exit', syncClose);
 
+let getSelectedCharCallback: (() => string | undefined) | undefined;
+
 /**
  * Start the visualizer WebSocket server (idempotent).
  */
 export function startVisualizerWs(opts: {
     port?: number;
     onRunStarted?: () => void;
+    getSelectedChar?: () => string | undefined;
 } = {}): WebSocketServer | null {
     const wsPort = opts.port ?? 3020;
-    if (opts.onRunStarted !== undefined) onRunStartedCallback = opts.onRunStarted;
+    if (opts.onRunStarted  !== undefined) onRunStartedCallback    = opts.onRunStarted;
+    if (opts.getSelectedChar !== undefined) getSelectedCharCallback = opts.getSelectedChar;
     if (wssInstance !== null) return wssInstance;
 
     try {
@@ -149,7 +153,7 @@ export function startVisualizerWs(opts: {
         });
 
         wss.on('connection', (ws) => {
-            ws.send(buildHelloMessage());
+            ws.send(buildHelloMessage(getSelectedCharCallback?.()));
             for (const payload of eventBuffer) {
                 if (ws.readyState === 1) ws.send(payload);
             }

@@ -122,6 +122,20 @@ export class HudScene extends Phaser.Scene implements HudContext {
   private heroTier = 0;
   /** Manually selected active character. Defaults to 'mc', auto-switches on first unlock. */
   private selectedCharacter: CharId = 'mc';
+
+  private static readonly CHAR_STORAGE_KEY = 'browser-devtools-mcp:selectedChar';
+
+  private saveCharSelection(char: CharId): void {
+    try { localStorage.setItem(HudScene.CHAR_STORAGE_KEY, char); } catch { /* ignore */ }
+  }
+
+  private loadCharSelection(): CharId | null {
+    try {
+      const v = localStorage.getItem(HudScene.CHAR_STORAGE_KEY);
+      if (v === 'mc' || v === 'thor' || v === 'grey' || v === 'batman') return v as CharId;
+    } catch { /* ignore */ }
+    return null;
+  }
   /** Small HUD label showing total tools used (bottom-right). */
   private toolCountText: Phaser.GameObjects.Text | null = null;
 
@@ -313,8 +327,9 @@ export class HudScene extends Phaser.Scene implements HudContext {
   // ── Public API ────────────────────────────────────────────────────────────
 
   /** Called once on WS hello — sets total tool count and resolves hero tier.
-   *  Pass autoSelect=false to unlock panels without switching away from MC. */
-  setTotalToolsUsed(count: number, autoSelect = true): void {
+   *  Pass autoSelect=false to unlock panels without switching away from MC.
+   *  savedChar comes from the server-side stats.json. */
+  setTotalToolsUsed(count: number, autoSelect = true, savedChar?: string): void {
     this.totalToolsUsed = count;
     if (this.toolCountText) this.toolCountText.setText(`tools: ${count}`);
     const newTier = count >= HERO_TIER_THRESHOLDS[3] ? 3
@@ -327,12 +342,35 @@ export class HudScene extends Phaser.Scene implements HudContext {
     if (tierChanged) {
       if (newTier > 0) {
         if (autoSelect) {
-          // Auto-select the newly unlocked hero on first unlock
-          this.selectedCharacter = newTier === 1 ? 'thor' : newTier === 2 ? 'grey' : 'batman';
-          this.heroChar.spawn(() => {
-            const container = this.mainChar.getContainer();
-            if (container) container.setVisible(false);
-          });
+          // Required tier for the currently selected character
+          const currentCharTier = this.selectedCharacter === 'mc'   ? 0
+                                : this.selectedCharacter === 'thor'  ? 1
+                                : this.selectedCharacter === 'grey'  ? 2
+                                : 3;
+          // Only auto-select when no valid hero is already chosen by the user
+          const shouldAutoSelect = currentCharTier === 0 || currentCharTier > newTier;
+          if (shouldAutoSelect) {
+            // Prefer server-side saved char, fall back to localStorage, then default
+            const serverSaved = (savedChar === 'thor' || savedChar === 'grey' || savedChar === 'batman') ? savedChar as CharId : null;
+            const localSaved  = this.loadCharSelection();
+            const saved       = serverSaved ?? localSaved;
+            const savedTier   = saved === 'thor' ? 1 : saved === 'grey' ? 2 : saved === 'batman' ? 3 : 0;
+            const charToSelect = (saved && saved !== 'mc' && savedTier <= newTier)
+              ? saved
+              : (newTier === 1 ? 'thor' : newTier === 2 ? 'grey' : 'batman');
+
+            this.selectedCharacter = charToSelect;
+            this.heroChar.spawn(() => {
+              const container = this.mainChar.getContainer();
+              if (container) container.setVisible(false);
+            });
+          } else if (!this.heroChar.getSprite()) {
+            // Hero was selected but sprite is missing (e.g. after extension restart) — re-spawn
+            this.heroChar.spawn(() => {
+              const container = this.mainChar.getContainer();
+              if (container) container.setVisible(false);
+            });
+          }
         }
       } else {
         this.selectedCharacter = 'mc';
@@ -1239,6 +1277,11 @@ export class HudScene extends Phaser.Scene implements HudContext {
     if (this.selectedCharacter === char) return;
 
     this.selectedCharacter = char;
+    this.saveCharSelection(char);
+    try {
+      const send = (window as unknown as Record<string, unknown>)['sendCharToServer'] as ((c: string) => void) | undefined;
+      send?.(char);
+    } catch { /* ignore */ }
 
     if (char === 'mc') {
       this.heroChar.destroy();
@@ -1312,6 +1355,8 @@ export class HudScene extends Phaser.Scene implements HudContext {
   // ── Tool routing helpers ──────────────────────────────────────────────────
 
   private isMainHeroNavigationTool(toolName: string): boolean {
+    // All interaction_* except interaction_click (which goes to ForestMan)
+    if (toolName.startsWith('interaction_') && toolName !== 'interaction_click') return true;
     return toolName.startsWith('navigation_') ||
            toolName === 'browser_navigate' ||
            toolName === 'browser_go_back' ||
@@ -1324,17 +1369,41 @@ export class HudScene extends Phaser.Scene implements HudContext {
            toolName === 'browser_handle_dialog' ||
            toolName === 'browser_wait_for' ||
            toolName === 'browser_drag' ||
-           toolName === 'browser_hover';
-  }
-
-  private isMainHeroClickTool(toolName: string): boolean {
-    return toolName === 'interaction_click' ||
-           toolName === 'browser_click' ||
+           toolName === 'browser_hover' ||
            toolName === 'browser_select_option' ||
            toolName === 'browser_fill' ||
            toolName === 'browser_type' ||
            toolName === 'browser_scroll' ||
            toolName === 'execute';
+  }
+
+  private isMainHeroClickTool(toolName: string): boolean {
+    return toolName === 'interaction_click' ||
+           toolName === 'browser_click';
+  }
+
+  /** Returns true when a tool output contains embedded ARIA/snapshot data. */
+  private outputContainsSnapshot(output: string): boolean {
+    if (!output) return false;
+    // ARIA tree markers produced by a11y_take-aria-snapshot
+    return output.includes('[ref=') ||
+           output.includes('aria-snapshot') ||
+           output.includes('- Page URL:') ||
+           output.includes('- heading') ||
+           output.includes('- button') ||
+           output.includes('- link ');
+  }
+
+  /** Returns true when a click tool output suggests the click triggered a page navigation. */
+  private clickCausedNavigation(output: string): boolean {
+    if (!output) return false;
+    const lower = output.toLowerCase();
+    // Common patterns in Playwright / Browser DevTools MCP navigation output
+    return lower.includes('page url:') ||
+           lower.includes('navigated to') ||
+           lower.includes('navigation') ||
+           lower.includes('url changed') ||
+           /https?:\/\//.test(output);
   }
 
   private getContentHeadText(toolName: string): string {
@@ -1397,8 +1466,8 @@ export class HudScene extends Phaser.Scene implements HudContext {
       const toolName = (ev as { toolName?: string }).toolName as string | undefined;
       if (!toolName) return;
 
-      // Handle missed run_started (UI was reconnecting when session started)
-      if (!this.activeRunId) {
+      // Handle missed run_started or tools arriving after a finished run
+      if (!this.activeRunId || this.runFinished) {
         const newRunId = (ev as { runId?: string }).runId ?? null;
         this.activeRunId  = newRunId;
         this.runFinished  = false;
@@ -1433,19 +1502,8 @@ export class HudScene extends Phaser.Scene implements HudContext {
         return;
       }
 
-      // interaction_click / browser_click → MC / hero navigation always
-      // fill, type, scroll, execute, etc. → ForestMan
+      // interaction_click / browser_click → ForestMan
       if (isClickTool) {
-        const isDirectClick = toolName === 'interaction_click' || toolName === 'browser_click';
-        this.lastClickWasNav = isDirectClick;
-        if (isDirectClick) {
-          this.heroNavActive = true;
-          this.heroNavToolName = toolName;
-          this.cancelStopTimer('mcStopTimer');
-          this.mainChar.actionStartTs = Date.now();
-          this.mainChar.startNavigation(toolName);
-          return;
-        }
         this.cancelStopTimer('fmStopTimer');
         this.forestMan.actionStartTs = Date.now();
         this.forestMan.startChop(toolName);
@@ -1510,15 +1568,21 @@ export class HudScene extends Phaser.Scene implements HudContext {
       } else if (isSnapshotTool) {
         this.scheduleStop('explorerStopTimer', this.explorer.actionStartTs, () => this.explorer.stopSnapshot());
       } else if (isClickTool) {
-        if (this.lastClickWasNav) {
-          this.lastClickWasNav = false;
-          this.scheduleStop('mcStopTimer', this.mainChar.actionStartTs, () => {
+        // Always stop ForestMan after a click
+        this.scheduleStop('fmStopTimer', this.forestMan.actionStartTs, () => this.forestMan.stopChop());
+        // Additionally, if the click caused a page navigation, also trigger hero navigation
+        const output = String((ev as { output?: unknown }).output ?? '');
+        if (this.clickCausedNavigation(output)) {
+          this.heroNavActive = true;
+          this.heroNavToolName = toolName;
+          this.cancelStopTimer('mcStopTimer');
+          this.mainChar.actionStartTs = Date.now();
+          this.mainChar.startNavigation(toolName);
+          this.scheduleStop('mcStopTimer', Date.now(), () => {
             this.heroNavActive = false;
             this.heroNavToolName = undefined;
             this.mainChar.stopAction();
           });
-        } else {
-          this.scheduleStop('fmStopTimer', this.forestMan.actionStartTs, () => this.forestMan.stopChop());
         }
       } else if (isNavTool) {
         this.scheduleStop('mcStopTimer', this.mainChar.actionStartTs, () => {
@@ -1526,6 +1590,14 @@ export class HudScene extends Phaser.Scene implements HudContext {
           this.heroNavToolName = undefined;
           this.mainChar.stopAction();
         });
+        // If nav/execute output contains embedded ARIA snapshot data, also trigger Explorer
+        const navOutput = String((ev as { output?: unknown }).output ?? '');
+        if (this.outputContainsSnapshot(navOutput)) {
+          this.cancelStopTimer('explorerStopTimer');
+          this.explorer.actionStartTs = Date.now();
+          this.explorer.startSnapshot(toolName ?? 'a11y_take-aria-snapshot');
+          this.scheduleStop('explorerStopTimer', this.explorer.actionStartTs, () => this.explorer.stopSnapshot());
+        }
       } else {
         if (isContentTool) {
           this.requestStopAction(CONTENT_AGENT_ID);
