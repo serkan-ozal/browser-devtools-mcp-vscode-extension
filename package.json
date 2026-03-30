@@ -63,6 +63,11 @@
         "command": "browserDevtoolsMcp.restartServer",
         "title": "Browser DevTools MCP: Restart Server",
         "icon": "$(debug-restart)"
+      },
+      {
+        "command": "browserDevtoolsMcp.showVisualizer",
+        "title": "Browser DevTools MCP: Show Visualizer",
+        "icon": "$(play)"
       }
     ],
     "views": {
@@ -281,14 +286,25 @@
           "type": "string",
           "default": "",
           "description": "Comma-separated tool domains to enable (e.g. navigation,interaction,a11y). Empty = all. Browser: a11y, content, debug, figma, interaction, navigation, o11y, react, run, stub, sync. Node: debug, run."
+        },
+        "browserDevtoolsMcp.visualizer.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Phaser-based visualizer UI and WebSocket server for real-time tool event visualization."
+        },
+        "browserDevtoolsMcp.visualizer.wsPort": {
+          "type": "number",
+          "default": 3020,
+          "description": "WebSocket port for the visualizer event stream."
         }
       }
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run build:visualizer && npm run compile",
+    "build:visualizer": "cd visualizer-ui && npm install && npm run build",
     "compile": "tsc -p ./",
-    "build": "tsc -p ./",
+    "build": "npm run build:visualizer && npm run compile",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
     "lint:check": "prettier --config .prettierrc.json --check ./src/*.ts",
@@ -302,13 +318,15 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.96.0",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
     "@vscode/vsce": "^3.7.1",
     "eslint": "^8.56.0",
     "prettier": "^3.2.0",
     "release-it": "^17.0.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "ws": "^8.20.0"
   },
   "dependencies": {
     "@img/sharp-wasm32": "0.34.5",

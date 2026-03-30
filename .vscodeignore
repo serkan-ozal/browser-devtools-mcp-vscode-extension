@@ -34,3 +34,11 @@ node_modules/**/examples/**
 # Keep sharp core + wasm package in the VSIX.
 !**/node_modules/sharp/**
 !**/node_modules/@img/sharp-wasm32/**
+
+# Visualizer UI: include source + built dist, exclude node_modules
+visualizer-ui/node_modules/**
+!visualizer-ui/src/**
+!visualizer-ui/dist/**
+!visualizer-ui/package.json
+!visualizer-ui/vite.config.ts
+!visualizer-ui/tsconfig.json

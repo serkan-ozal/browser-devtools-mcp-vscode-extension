@@ -3,6 +3,8 @@ import * as https from 'node:https';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { startVisualizerWs, closeVisualizer } from './visualizer/ws';
+import { getVisualizerAppHtml } from './visualizer/mcp-app-inline';
 import {
     ensurePlaywrightBrowsersInstalled,
     installPlaywrightBrowsersByGroups,
@@ -90,10 +92,33 @@ const SETTINGS_TO_ENV: Record<string, string> = {
     'figma.apiBaseUrl': 'FIGMA_API_BASE_URL',
     toolOutputSchemaDisable: 'TOOL_OUTPUT_SCHEMA_DISABLE',
     availableToolDomains: 'AVAILABLE_TOOL_DOMAINS',
+    'visualizer.enable': 'VISUALIZER_ENABLE',
+    'visualizer.wsPort': 'VIS_WS_PORT',
 };
 
 // Status bar item
 let statusBarItem: vscode.StatusBarItem;
+
+// Visualizer panel (singleton)
+let visualizerPanel: vscode.WebviewPanel | undefined;
+
+function showVisualizerPanel(context: vscode.ExtensionContext, wsPort: number): void {
+    if (visualizerPanel) {
+        visualizerPanel.reveal(vscode.ViewColumn.Two);
+        return;
+    }
+    visualizerPanel = vscode.window.createWebviewPanel(
+        'mcpVisualizer',
+        'MCP Visualizer',
+        vscode.ViewColumn.Two,
+        {
+            enableScripts: true,
+            retainContextWhenHidden: true,
+        }
+    );
+    visualizerPanel.webview.html = getVisualizerAppHtml(wsPort, context.extensionPath);
+    visualizerPanel.onDidDispose(() => { visualizerPanel = undefined; }, null, context.subscriptions);
+}
 
 function isExtensionEnabled(): boolean {
     const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
@@ -413,6 +438,15 @@ function getMcpServerConfig(): {
             mergedEnv[key] = value;
         }
     }
+    // When visualizer is enabled, wrap the MCP server with the bridge so it
+    // can forward tool-call events to the visualizer WebSocket server.
+    const visualizerEnabled = vscode.workspace.getConfiguration(CONFIG_PREFIX).get<boolean>('visualizer.enable', false);
+    if (visualizerEnabled && extensionPathForDeactivate) {
+        const bridgePath = path.join(extensionPathForDeactivate, 'dist', 'visualizer', 'mcp-bridge.js');
+        if (fs.existsSync(bridgePath)) {
+            return { command: 'node', args: [bridgePath, cachedMcpServerPath, CURSOR_MCP_SERVER_ARG], env: mergedEnv };
+        }
+    }
     return { command: 'node', args: [cachedMcpServerPath, CURSOR_MCP_SERVER_ARG], env: mergedEnv };
 }
 
@@ -675,6 +709,26 @@ export async function activate(context: vscode.ExtensionContext) {
 
     void maybePromptExtensionUpdate(context);
 
+    // Register Show Visualizer command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('browserDevtoolsMcp.showVisualizer', () => {
+            const cfg = vscode.workspace.getConfiguration(CONFIG_PREFIX);
+            const wsPort = cfg.get<number>('visualizer.wsPort', 3020);
+            startVisualizerWs({ port: wsPort });
+            showVisualizerPanel(context, wsPort);
+        })
+    );
+
+    // Start visualizer WebSocket server if enabled; panel auto-opens on first MCP run_started event
+    const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
+    if (config.get<boolean>('visualizer.enable', false)) {
+        const wsPort = config.get<number>('visualizer.wsPort', 3020);
+        startVisualizerWs({
+            port: wsPort,
+            onRunStarted: () => showVisualizerPanel(context, wsPort),
+        });
+    }
+
     // Watch for configuration changes
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
@@ -783,6 +837,7 @@ async function runUninstallIfNeeded(mcpServerUnregistered: boolean): Promise<voi
 }
 
 export async function deactivate(): Promise<void> {
+    await closeVisualizer();
     let mcpServerUnregistered: boolean = false;
     if (isCursor()) {
         mcpServerUnregistered = await unregisterCursorMcp();

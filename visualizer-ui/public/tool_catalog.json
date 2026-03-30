@@ -1,0 +1,43 @@
+{
+  "version": "1",
+  "tools": [
+    {
+      "id": "web_search/library/search",
+      "name": "web_search/library/search",
+      "description": "",
+      "category": "web_search",
+      "tags": []
+    },
+    {
+      "id": "code_write/office/typing",
+      "name": "code_write/office/typing",
+      "description": "",
+      "category": "code_write",
+      "tags": []
+    },
+    {
+      "id": "fitness/gym/bench_press",
+      "name": "fitness/gym/bench_press",
+      "description": "",
+      "category": "fitness",
+      "tags": []
+    }
+  ],
+  "mappings": [
+    {
+      "catalogId": "web_search/library/search",
+      "source": "mcp",
+      "toolName": "web_search"
+    },
+    {
+      "catalogId": "code_write/office/typing",
+      "source": "mcp",
+      "toolName": "browser_type"
+    },
+    {
+      "catalogId": "fitness/gym/bench_press",
+      "source": "mcp",
+      "toolName": "browser_click"
+    }
+  ]
+}
