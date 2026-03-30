@@ -312,8 +312,9 @@ export class HudScene extends Phaser.Scene implements HudContext {
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  /** Called once on WS hello — sets total tool count and resolves hero tier. */
-  setTotalToolsUsed(count: number): void {
+  /** Called once on WS hello — sets total tool count and resolves hero tier.
+   *  Pass autoSelect=false to unlock panels without switching away from MC. */
+  setTotalToolsUsed(count: number, autoSelect = true): void {
     this.totalToolsUsed = count;
     if (this.toolCountText) this.toolCountText.setText(`tools: ${count}`);
     const newTier = count >= HERO_TIER_THRESHOLDS[3] ? 3
@@ -325,12 +326,14 @@ export class HudScene extends Phaser.Scene implements HudContext {
 
     if (tierChanged) {
       if (newTier > 0) {
-        // Auto-select the newly unlocked hero on first unlock
-        this.selectedCharacter = newTier === 1 ? 'thor' : newTier === 2 ? 'grey' : 'batman';
-        this.heroChar.spawn(() => {
-          const container = this.mainChar.getContainer();
-          if (container) container.setVisible(false);
-        });
+        if (autoSelect) {
+          // Auto-select the newly unlocked hero on first unlock
+          this.selectedCharacter = newTier === 1 ? 'thor' : newTier === 2 ? 'grey' : 'batman';
+          this.heroChar.spawn(() => {
+            const container = this.mainChar.getContainer();
+            if (container) container.setVisible(false);
+          });
+        }
       } else {
         this.selectedCharacter = 'mc';
         this.heroChar.destroy();

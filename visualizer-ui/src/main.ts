@@ -78,6 +78,7 @@ function pushDemoEvents(mode: string): void {
       'browser_take_screenshot',
       'debug_trace',
       'content_summarize',
+      'browser_fill',
     ];
     tools.forEach(toolName => push({ type: 'tool_started', runId, agentId: 'agent-1', ts: Date.now(), toolName }));
 
@@ -235,8 +236,8 @@ async function start(): Promise<void> {
           scene.setConnected(true);
           window.setTimeout(() => {
             // Unlock all hero tiers so panels + hero selection are visible in demos
-            if (demoMode === 'chars') scene.setTotalToolsUsed(600);
-            pushDemoEvents(demoMode);
+            if (demoMode === 'chars') scene.setTotalToolsUsed(600, false);
+          pushDemoEvents(demoMode);
           }, 180);
           return;
         }

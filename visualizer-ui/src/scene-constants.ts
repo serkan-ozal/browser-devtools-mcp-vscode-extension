@@ -72,9 +72,10 @@ export const FM_LABEL_OFFSET_Y = -52;
 
 // ── Hero Tier Characters ──────────────────────────────────────────────────────
 // All hero spritesheets: 1024×64 → 16 frames at 64×64
-export const HERO_FW    = 64;
-export const HERO_FH    = 64;
-export const HERO_SCALE = 2.0;
+export const HERO_FW         = 64;
+export const HERO_FH         = 64;
+export const HERO_SCALE      = 2.0;
+export const BAT_HERO_SCALE  = 1.5;
 export const HERO_LABEL_OFFSET_Y = -80;
 
 // Batman home position (independent from MC_HOME)
@@ -105,12 +106,28 @@ export const THOR_LANDING_SPOTS: Pt[] = [
   { x: 220, y: 400 },  // Spot C – left side
 ];
 
+/** 3 landing spots GreyIronMan cycles through on each navigation (hovers in place). */
+export const GREY_LANDING_SPOTS: Pt[] = [
+  { x: 195, y: 175 },  // Spot A – upper left
+  { x: 655, y: 165 },  // Spot B – upper right
+  { x: 415, y: 235 },  // Spot C – upper center
+];
+
+/** 3 landing spots Batman cycles through on each navigation (projects from each). */
+export const BAT_LANDING_SPOTS: Pt[] = [
+  { x: 620, y: 185 },  // Spot A – right upper
+  { x: 175, y: 215 },  // Spot B – left upper
+  { x: 400, y: 158 },  // Spot C – top center
+];
+
 // GreyIronMan — Tier 2
 export const GREY_SMOKE_KEY      = 'grey_smoke';
 export const GREY_UP_FLY_KEY     = 'grey_up_fly';
 export const GREY_CROSS_FLY_KEY  = 'grey_cross_fly';
 export const GREY_ANIM_SMOKE     = 'grey_anim_smoke';
 export const GREY_ANIM_UP_FLY    = 'grey_anim_up_fly';
+export const GREY_ANIM_TAKEOFF   = 'grey_anim_takeoff';   // up_fly frames 0-7  (rise)
+export const GREY_ANIM_LAND      = 'grey_anim_land';      // up_fly frames 8-15 (descend)
 export const GREY_ANIM_CROSS_FLY = 'grey_anim_cross_fly';
 
 // Batman — Tier 3
