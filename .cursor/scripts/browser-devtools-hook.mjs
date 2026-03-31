@@ -97,8 +97,8 @@ function mapToSharedEvent(hook) {
       return { type: 'run_started', runId, agentId, ts };
 
     // Cursor native tools (edit_file, read_file, run_terminal_cmd, …)
-    // MCP toolları preToolUse'da "MCP:tool_name" olarak gelir → beforeMCPExecution ile çakışır,
-    // orada zaten yakalanıyor, burada atlıyoruz.
+    // MCP tools arrive in preToolUse as "MCP:tool_name" → they overlap with beforeMCPExecution,
+    // which already handles them, so we skip them here.
     case 'preToolUse': {
       const outputs = Array.isArray(hook.toolOutputs) ? hook.toolOutputs : [];
       const tName = normalizeToolName(String(
