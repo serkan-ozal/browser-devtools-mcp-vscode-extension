@@ -92,12 +92,12 @@ export class MainCharacter {
    */
   /** Map a tool name to a short action label shown above the character. */
   private getLabelForTool(toolName?: string): string {
-    if (!toolName) return 'Navigating';
-    if (toolName.startsWith('navigation_go-to') || toolName === 'browser_navigate') return 'Navigating';
+    if (!toolName) return 'Page Changing';
+    if (toolName.startsWith('navigation_go-to') || toolName === 'browser_navigate') return 'Page Changing';
     if (toolName === 'navigation_go-back'  || toolName === 'browser_go_back')     return 'Going Back';
     if (toolName === 'navigation_go-forward' || toolName === 'browser_go_forward') return 'Going Forward';
     if (toolName === 'navigation_reload'   || toolName === 'browser_reload')       return 'Reloading';
-    if (toolName.startsWith('navigation_'))   return 'Navigating';
+    if (toolName.startsWith('navigation_'))   return 'Page Changing';
     if (toolName === 'browser_new_tab')       return 'New Tab';
     if (toolName === 'browser_close_tab')     return 'Closing Tab';
     if (toolName === 'browser_switch_tab')    return 'Switching Tab';
@@ -110,9 +110,9 @@ export class MainCharacter {
         toolName === 'browser_type'   ||
         toolName === 'browser_scroll' ||
         toolName === 'browser_select_option' ||
-        toolName === 'execute')               return 'Route Change';
-    if (toolName.startsWith('interaction_'))  return 'Route Change';
-    return 'Navigating';
+        toolName === 'execute')               return 'Page Changing';
+    if (toolName.startsWith('interaction_'))  return 'Page Changing';
+    return 'Page Changing';
   }
 
   startNavigation(toolName?: string): void {
