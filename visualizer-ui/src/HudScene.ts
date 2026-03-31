@@ -704,7 +704,7 @@ export class HudScene extends Phaser.Scene implements HudContext {
       const isNavTool = toolName.startsWith('navigation_');
       const isClick   = toolName.startsWith('interaction_');
       if (agent.headLabel) {
-        if (isNavTool) agent.headLabel.setText('Page Changing');
+        if (isNavTool) agent.headLabel.setText('Navigating');
         else if (isClick) agent.headLabel.setText('Clicked');
         else agent.headLabel.setText('');
       }
