@@ -35,6 +35,8 @@ node_modules/**/examples/**
 !**/node_modules/sharp/**
 !**/node_modules/@img/sharp-wasm32/**
 
+# Cursor hooks bridge script (installed to workspace .cursor/ on visualizer enable)
+!scripts/**
 
 # Visualizer UI: only the Vite-built output is needed at runtime
 visualizer-ui/node_modules/**
