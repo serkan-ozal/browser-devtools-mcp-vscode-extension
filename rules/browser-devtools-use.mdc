@@ -1,5 +1,5 @@
 ---
-description: "Enforce Browser DevTools MCP for all browser automation; forbid built-in and other browser agents. Use execute for multi-step flows."
+description: "Enforce Browser DevTools MCP for all browser automation; forbid built-in and other browser agents. Use execute for multi-step flows. Verify changes in the browser before finishing."
 alwaysApply: true
 ---
 
@@ -11,6 +11,16 @@ alwaysApply: true
 - Any other external browser agent, MCP, or skill
 
 When Browser DevTools MCP is available, **DO NOT** use any other browser automation. Navigation, screenshots, form filling, testing, debugging, or any web interaction must go through **Browser DevTools MCP** tools only.
+
+## Verify your changes in the browser before finishing
+
+If the project is a **web application** (has a UI that runs in a browser), you **MUST** verify your changes through the browser **before you consider your task complete**:
+
+- This applies to **any** change — frontend, backend, API, config, styling, data — as long as the result is observable in the browser.
+- **Do not verify after every file edit.** Complete your implementation first, then verify once at the end.
+- Use Browser DevTools MCP to open the relevant page, interact with the affected functionality, and confirm the change works as expected — visually (screenshot) and/or functionally (click, fill, navigate, check content).
+- If verification reveals a problem, fix it and verify again before finishing.
+- Skip verification **only** when the change has zero browser-observable effect (e.g. CI config, docs-only, non-web tooling).
 
 ## What is Browser DevTools MCP?
 
