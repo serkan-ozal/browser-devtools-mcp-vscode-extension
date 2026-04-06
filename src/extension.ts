@@ -327,13 +327,17 @@ function installCursorHooks(workspaceFolder: string, hookScriptSrc: string): voi
                 config = JSON.parse(fs.readFileSync(hooksFile, 'utf8')) as HooksConfig;
             } catch { /* use default */ }
         }
-        if (!config.hooks) config.hooks = {};
+        if (!config.hooks) {
+            config.hooks = {};
+        }
 
         const command = `node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`;
         const entry: HookEntry = { type: 'command', command, timeout: 5, failClosed: false };
 
         for (const event of HOOK_EVENTS) {
-            if (!config.hooks[event]) config.hooks[event] = [];
+            if (!config.hooks[event]) {
+                config.hooks[event] = [];
+            }
             // Remove stale entries from a previous install, then append fresh one
             config.hooks[event] = config.hooks[event].filter((h) => !h.command.includes(HOOK_SCRIPT_NAME));
             config.hooks[event].push(entry);
@@ -356,7 +360,7 @@ function removeCursorHooks(workspaceFolder: string): void {
         const hookDest = path.join(cursorDir, 'scripts', HOOK_SCRIPT_NAME);
         const hooksFile = path.join(cursorDir, 'hooks.json');
 
-        if (fs.existsSync(hookDest)) fs.unlinkSync(hookDest);
+        if (fs.existsSync(hookDest)) {fs.unlinkSync(hookDest);}
 
         if (fs.existsSync(hooksFile)) {
             let config: HooksConfig;
@@ -367,7 +371,7 @@ function removeCursorHooks(workspaceFolder: string): void {
             }
             for (const event of Object.keys(config.hooks ?? {})) {
                 config.hooks[event] = (config.hooks[event] ?? []).filter((h) => !h.command.includes(HOOK_SCRIPT_NAME));
-                if (config.hooks[event].length === 0) delete config.hooks[event];
+                if (config.hooks[event].length === 0) {delete config.hooks[event];}
             }
             if (Object.keys(config.hooks ?? {}).length === 0) {
                 fs.unlinkSync(hooksFile);

@@ -11,7 +11,9 @@ function loadVisualizerBundle(wsPort: number, extensionPath: string, savedChar?:
         const distDir = path.join(extensionPath, 'visualizer-ui', 'dist');
         const indexHtml = fs.readFileSync(path.join(distDir, 'index.html'), 'utf8');
         const match = indexHtml.match(/src="([^"]+index[^"]*\.js)"/);
-        if (!match) return null;
+        if (!match) {
+          return null;
+        }
         const jsRel = match[1].replace(/^\//, '');
         const jsCode = fs.readFileSync(path.join(distDir, jsRel), 'utf8');
         // Set globals before the module executes

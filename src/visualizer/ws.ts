@@ -56,24 +56,27 @@ const eventBuffer: string[] = [];
 
 function bufferEvent(payload: string): void {
     eventBuffer.push(payload);
-    if (eventBuffer.length > EVENT_BUFFER_MAX) eventBuffer.shift();
+    if (eventBuffer.length > EVENT_BUFFER_MAX) {
+        eventBuffer.shift();
+    }
 }
 
 let wssInstance: WebSocketServer | null = null;
 let idleCloseTimer: NodeJS.Timeout | null = null;
 let portRetrying = false;
 
-/** Called once when the first run_started event is received. */
+/** Called when the first MCP tool usage or run_started event is received. */
 let onRunStartedCallback: (() => void) | null = null;
+let panelOpened = false;
 
 function freePortAndRetry(port: number, delayMs = 1000): void {
-    if (portRetrying) return;
+    if (portRetrying) {return;}
     portRetrying = true;
 
     const doRetry = (): void => {
         setTimeout(() => {
             portRetrying = false;
-            if (wssInstance === null) startVisualizerWs({ port });
+            if (wssInstance === null) {startVisualizerWs({ port });}
         }, delayMs);
     };
 
@@ -133,9 +136,9 @@ export function startVisualizerWs(opts: {
     getSelectedChar?: () => string | undefined;
 } = {}): WebSocketServer | null {
     const wsPort = opts.port ?? 3020;
-    if (opts.onRunStarted  !== undefined) onRunStartedCallback    = opts.onRunStarted;
-    if (opts.getSelectedChar !== undefined) getSelectedCharCallback = opts.getSelectedChar;
-    if (wssInstance !== null) return wssInstance;
+    if (opts.onRunStarted  !== undefined) {onRunStartedCallback    = opts.onRunStarted;}
+    if (opts.getSelectedChar !== undefined) {getSelectedCharCallback = opts.getSelectedChar;}
+    if (wssInstance !== null) {return wssInstance;}
 
     try {
         const wss = new WebSocketServer({ port: wsPort });
@@ -155,11 +158,11 @@ export function startVisualizerWs(opts: {
         wss.on('connection', (ws) => {
             ws.send(buildHelloMessage(getSelectedCharCallback?.()));
             for (const payload of eventBuffer) {
-                if (ws.readyState === 1) ws.send(payload);
+                if (ws.readyState === 1) {ws.send(payload);}
             }
 
             ws.on('message', (raw) => {
-                if (typeof raw !== 'string' && !Buffer.isBuffer(raw)) return;
+                if (typeof raw !== 'string' && !Buffer.isBuffer(raw)) {return;}
                 const rawStr = raw.toString();
                 try {
                     const message = JSON.parse(rawStr) as Record<string, unknown>;
@@ -169,12 +172,12 @@ export function startVisualizerWs(opts: {
                     } else if (isInjectableEvent(message)) {
                         if (message.type === 'run_started') {
                             eventBuffer.length = 0;
-                            if (onRunStartedCallback) onRunStartedCallback();
+                            if (onRunStartedCallback) {onRunStartedCallback();}
                         }
-                        if (message.type === 'tool_finished') incrementToolCount();
+                        if (message.type === 'tool_finished') {incrementToolCount();}
                         bufferEvent(rawStr);
                         for (const other of wss.clients) {
-                            if (other !== ws && other.readyState === 1) other.send(rawStr);
+                            if (other !== ws && other.readyState === 1) {other.send(rawStr);}
                         }
                         // WS sunucusu yalnızca "Close" butonu veya extension host
                         // kapandığında kapanır — idle timer yok.
@@ -200,7 +203,7 @@ export function startVisualizerWs(opts: {
 
 export function closeVisualizer(): Promise<void> {
     clearIdleCloseTimer();
-    if (wssInstance === null) return Promise.resolve();
+    if (wssInstance === null) {return Promise.resolve();}
     const wss = wssInstance;
     wssInstance = null;
     // Force-terminate all connected clients (Phaser UI, hook scripts) so the
