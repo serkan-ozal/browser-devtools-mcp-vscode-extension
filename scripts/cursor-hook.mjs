@@ -13,7 +13,13 @@
  * The visualizer WS server must be running on VIS_WS_PORT (default 3020).
  */
 
-// No external imports — uses Node.js 21+ built-in WebSocket (globalThis.WebSocket).
+// Uses globalThis.WebSocket (Node 21+) with fallback to 'ws' package for older versions.
+import { createRequire } from 'node:module';
+let _WsClient = null;
+try {
+  const req = createRequire(import.meta.url);
+  _WsClient = req('ws');
+} catch { /* ws not available */ }
 
 const WS_PORT = parseInt(process.env.VIS_WS_PORT ?? '3020', 10);
 const TIMEOUT_MS = 2500;
@@ -250,26 +256,73 @@ function truncate(value, maxLen = 500) {
  * Open a WebSocket connection to the visualizer server, send one JSON
  * message, then close. Times out after TIMEOUT_MS to avoid blocking Cursor.
  *
+ * Uses globalThis.WebSocket when available (Node 21+), otherwise falls back
+ * to a minimal raw HTTP-upgrade + WS frame implementation (Node 20 compat).
+ *
  * @param {Record<string, unknown>} event
  * @returns {Promise<void>}
  */
 function sendEvent(event) {
+  if (typeof globalThis.WebSocket === 'function') {
+    // Node 21+ native WebSocket
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        try { ws?.close(); } catch { /* ignore */ }
+        reject(new Error('WS send timeout'));
+      }, TIMEOUT_MS);
+
+      let ws;
+      try {
+        ws = new WebSocket(`ws://localhost:${WS_PORT}`);
+      } catch (err) {
+        clearTimeout(timer);
+        reject(err);
+        return;
+      }
+
+      ws.addEventListener('open', () => {
+        try {
+          ws.send(JSON.stringify(event));
+          clearTimeout(timer);
+          ws.close();
+          resolve();
+        } catch (err) {
+          clearTimeout(timer);
+          reject(err);
+        }
+      });
+
+      ws.addEventListener('error', () => {
+        clearTimeout(timer);
+        reject(new Error('WS connection error'));
+      });
+    });
+  }
+  // Fallback: 'ws' npm package (Node <21)
+  return sendEventWsPackage(event);
+}
+
+/**
+ * Send using the 'ws' npm package (works on all Node versions).
+ */
+function sendEventWsPackage(event) {
+  if (!_WsClient) return Promise.reject(new Error('ws package not available'));
   return new Promise((resolve, reject) => {
-    let ws;
     const timer = setTimeout(() => {
       try { ws?.close(); } catch { /* ignore */ }
       reject(new Error('WS send timeout'));
     }, TIMEOUT_MS);
 
+    let ws;
     try {
-      ws = new WebSocket(`ws://localhost:${WS_PORT}`);
+      ws = new _WsClient(`ws://localhost:${WS_PORT}`);
     } catch (err) {
       clearTimeout(timer);
       reject(err);
       return;
     }
 
-    ws.addEventListener('open', () => {
+    ws.on('open', () => {
       try {
         ws.send(JSON.stringify(event));
         clearTimeout(timer);
@@ -281,7 +334,7 @@ function sendEvent(event) {
       }
     });
 
-    ws.addEventListener('error', () => {
+    ws.on('error', () => {
       clearTimeout(timer);
       reject(new Error('WS connection error'));
     });

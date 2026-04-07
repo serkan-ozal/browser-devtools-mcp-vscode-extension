@@ -382,12 +382,17 @@ function installCursorHooks(workspaceFolder: string, hookScriptSrc: string, wsPo
             config.hooks = {};
         }
 
+        // NODE_PATH ensures the hook script can import 'ws' even when the
+        // workspace doesn't have it installed — we point to the extension's own node_modules.
+        const extNodeModules = path.join(path.dirname(path.dirname(hookScriptSrc)), 'node_modules');
         const command =
             wsPort !== undefined
                 ? process.platform === 'win32'
-                    ? `set VIS_WS_PORT=${wsPort}&& node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`
-                    : `VIS_WS_PORT=${wsPort} node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`
-                : `node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`;
+                    ? `set VIS_WS_PORT=${wsPort}&& set NODE_PATH=${extNodeModules}&& node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`
+                    : `VIS_WS_PORT=${wsPort} NODE_PATH=${extNodeModules} node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`
+                : process.platform === 'win32'
+                  ? `set NODE_PATH=${extNodeModules}&& node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`
+                  : `NODE_PATH=${extNodeModules} node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`;
         const entry: HookEntry = { type: 'command', command, timeout: 5, failClosed: false };
 
         for (const event of HOOK_EVENTS) {

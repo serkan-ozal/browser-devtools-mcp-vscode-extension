@@ -325,11 +325,11 @@
     "eslint": "^8.56.0",
     "prettier": "^3.2.0",
     "release-it": "^17.0.0",
-    "typescript": "^5.3.3",
-    "ws": "^8.20.0"
+    "typescript": "^5.3.3"
   },
   "dependencies": {
     "@img/sharp-wasm32": "0.34.5",
-    "browser-devtools-mcp": "^0.5.2"
+    "browser-devtools-mcp": "^0.6.4",
+    "ws": "^8.20.0"
   }
 }
