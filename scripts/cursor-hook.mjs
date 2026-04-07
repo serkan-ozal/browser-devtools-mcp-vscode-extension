@@ -180,15 +180,15 @@ function mapToSharedEvent(hook) {
     }
 
     case 'afterAgentResponse': {
-      // Cursor agent cevabı tamamlandı → parşömen scroll'da göster.
-      // Cursor, response metnini farklı field'larda gönderebilir.
+      // Cursor agent response is complete → show it in the parchment scroll.
+      // Cursor may send the response text in different fields.
       const responseText =
         hook.response ??
         hook.message  ??
         hook.text     ??
         hook.output   ??
         null;
-      if (!responseText) return null; // boş cevap, overlay açma
+      if (!responseText) return null; // empty response, do not open overlay
       return {
         type: 'agent_response',
         runId,
@@ -199,7 +199,7 @@ function mapToSharedEvent(hook) {
     }
 
     case 'stop':
-      // afterAgentResponse zaten parşömen açıyor; stop üstüne yazmasın.
+      // afterAgentResponse already opens the parchment; do not overwrite on stop.
       return null;
 
     default: {

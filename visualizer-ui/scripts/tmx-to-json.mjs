@@ -1,7 +1,7 @@
 /**
- * TMX → Tiled JSON dönüştürücü (dökümandaki yapıya uygun).
- * Kullanım: node scripts/tmx-to-json.mjs
- * Çıktı: public/assets/Tiled/Tilemaps/Beginning Fields.json
+ * TMX → Tiled JSON converter (matching the documented structure).
+ * Usage: node scripts/tmx-to-json.mjs
+ * Output: public/assets/Tiled/Tilemaps/Beginning Fields.json
  */
 import fs from 'fs';
 import path from 'path';

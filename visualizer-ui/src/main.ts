@@ -306,7 +306,7 @@ async function start(): Promise<void> {
                 clearIdleTimer();
                 idleTimer = setTimeout(() => { idleTimer = null; injectRunDone(); }, IDLE_RUN_DONE_MS);
               } else if (type === 'agent_response') {
-                // Agent yanıtladı → run_done enjeksiyonu gerekmez; idle timer iptal.
+                // Agent responded → no run_done injection needed; cancel idle timer.
                 clearIdleTimer();
               } else if (type === 'run_done') {
                 clearIdleTimer();

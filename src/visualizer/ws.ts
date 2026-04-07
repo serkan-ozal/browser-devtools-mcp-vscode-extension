@@ -179,8 +179,8 @@ export function startVisualizerWs(opts: {
                         for (const other of wss.clients) {
                             if (other !== ws && other.readyState === 1) {other.send(rawStr);}
                         }
-                        // WS sunucusu yalnızca "Close" butonu veya extension host
-                        // kapandığında kapanır — idle timer yok.
+                        // The WS server closes only via the "Close" button
+                        // or when the extension host shuts down — no idle timer.
                     }
                 } catch { /* ignore malformed */ }
             });

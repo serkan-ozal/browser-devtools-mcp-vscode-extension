@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite';
 
 /**
- * publicDir: false — tüm asset'ler ?inline ile base64 olarak bundle'a gömülüyor,
- * statik dosya sunumuna gerek yok. Bu sayede Vite 6'nın "public/ klasöründeki
- * dosyalar JavaScript'ten import edilemez" kısıtlaması da ortadan kalkar.
+ * publicDir: false — all assets are embedded into the bundle as base64 via ?inline,
+ * so static file serving is not needed. This also avoids Vite 6's
+ * "files under public/ cannot be imported from JavaScript" limitation.
  */
 export default defineConfig({
   root: '.',
