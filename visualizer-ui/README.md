@@ -22,5 +22,7 @@ Opens at `http://localhost:3000` (or `VIS_UI_PORT`). Connect the MCP server with
 Demo preview:
 
 ```bash
-http://localhost:3000/?demo=qa-report
+http://localhost:3000/?demo=preview
 ```
+
+(`?demo=chars` animasyonlu karakter demosu; diğer `demo` değerleri kısa bir run akışı üretir.)

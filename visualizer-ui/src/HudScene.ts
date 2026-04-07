@@ -13,13 +13,7 @@ import {
   ASSET_FLOWERS_RED,
   ASSET_FLOWERS_WHITE,
 } from './gameAssets';
-import {
-  type ToolCatalog,
-  DEFAULT_ZONES,
-  getCatalogIdForTool,
-  getZonePosition,
-  loadToolCatalog,
-} from './catalog';
+import { DEFAULT_ZONES, getZonePosition } from './catalog';
 import type { HudContext, CharId, TimerKey } from './HudContext';
 import {
   WORLD_WIDTH,
@@ -99,7 +93,6 @@ export class HudScene extends Phaser.Scene implements HudContext {
 
   private connected = false;
 
-  private catalog: ToolCatalog | null = null;
   private zones = DEFAULT_ZONES;
   private agents = new Map<string, AgentState>();
   private fireflies: Array<{ g: Phaser.GameObjects.Graphics; ox: number; oy: number; phase: number }> = [];
@@ -264,7 +257,7 @@ export class HudScene extends Phaser.Scene implements HudContext {
     this.heroChar.createAnimations();
   }
 
-  async create(): Promise<void> {
+  create(): void {
     // Title label
     this.add
       .text(WORLD_WIDTH / 2, 16, 'TOOLS OF EMPIRE', {
@@ -280,8 +273,6 @@ export class HudScene extends Phaser.Scene implements HudContext {
     this.createMapDecorations();
     this.createCampfire();
     this.createFlowers();
-
-    this.catalog = await loadToolCatalog();
 
     // Create characters that are always present
     this.mainChar.create();

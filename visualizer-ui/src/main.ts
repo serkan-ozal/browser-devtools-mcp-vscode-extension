@@ -1,6 +1,5 @@
 import type PhaserNamespace from 'phaser';
 import { eventQueue } from './eventQueue';
-import { QA_REPORT_DEMO } from './demoReports';
 
 const VIS_WS_PORT = (typeof (window as unknown as { VIS_WS_PORT?: number }).VIS_WS_PORT === 'number')
   ? (window as unknown as { VIS_WS_PORT: number }).VIS_WS_PORT
@@ -89,7 +88,7 @@ function pushDemoEvents(mode: string): void {
     return;
   }
 
-  const payload = mode === 'qa-report' ? QA_REPORT_DEMO : 'Demo completed successfully.';
+  const payload = 'Demo completed successfully.';
   eventQueue.push({ raw: '', event: { type: 'run_started', runId, agentId: 'agent-1', ts: now } });
   eventQueue.push({ raw: '', event: { type: 'run_done', runId, agentId: 'agent-1', ts: now + 300, result: payload, payload: { status: 'ok' } } });
 }
