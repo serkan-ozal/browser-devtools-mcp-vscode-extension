@@ -173,6 +173,7 @@ async function startVisualizerWithPortFallback(
             if (openPanelImmediately) {
                 showVisualizerPanel(context, actualPort);
             }
+            syncCursorHooks(context.extensionPath, true, actualPort);
         },
     });
     if (started === null) {
@@ -359,7 +360,7 @@ interface HooksConfig {
  * Copy cursor-hook.mjs to <workspace>/.cursor/scripts/ and merge hook entries
  * into <workspace>/.cursor/hooks.json. Existing third-party entries are preserved.
  */
-function installCursorHooks(workspaceFolder: string, hookScriptSrc: string): void {
+function installCursorHooks(workspaceFolder: string, hookScriptSrc: string, wsPort?: number): void {
     try {
         const cursorDir = path.join(workspaceFolder, '.cursor');
         const scriptsDir = path.join(cursorDir, 'scripts');
@@ -381,7 +382,12 @@ function installCursorHooks(workspaceFolder: string, hookScriptSrc: string): voi
             config.hooks = {};
         }
 
-        const command = `node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`;
+        const command =
+            wsPort !== undefined
+                ? process.platform === 'win32'
+                    ? `set VIS_WS_PORT=${wsPort}&& node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`
+                    : `VIS_WS_PORT=${wsPort} node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`
+                : `node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`;
         const entry: HookEntry = { type: 'command', command, timeout: 5, failClosed: false };
 
         for (const event of HOOK_EVENTS) {
@@ -442,11 +448,11 @@ function removeCursorHooks(workspaceFolder: string): void {
 /**
  * Install or remove Cursor hooks in every open workspace folder.
  */
-function syncCursorHooks(extensionPath: string, enable: boolean): void {
+function syncCursorHooks(extensionPath: string, enable: boolean, wsPort?: number): void {
     const hookSrc = path.join(extensionPath, 'scripts', 'cursor-hook.mjs');
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
         if (enable) {
-            installCursorHooks(folder.uri.fsPath, hookSrc);
+            installCursorHooks(folder.uri.fsPath, hookSrc, wsPort);
         } else {
             removeCursorHooks(folder.uri.fsPath);
         }
@@ -915,7 +921,6 @@ export async function activate(context: vscode.ExtensionContext) {
     if (isVisualizerEnabled(config)) {
         const wsPort = config.get<number>('visualizer.wsPort', 3020);
         void startVisualizerWithPortFallback(context, wsPort, false);
-        syncCursorHooks(context.extensionPath, true);
     }
 
     // Watch for configuration changes
@@ -963,7 +968,6 @@ export async function activate(context: vscode.ExtensionContext) {
                             .getConfiguration(CONFIG_PREFIX)
                             .get<number>('visualizer.wsPort', 3020);
                         void startVisualizerWithPortFallback(context, wsPort, false);
-                        syncCursorHooks(context.extensionPath, true);
                     } else {
                         void closeVisualizer();
                         activeVisualizerPort = null;
