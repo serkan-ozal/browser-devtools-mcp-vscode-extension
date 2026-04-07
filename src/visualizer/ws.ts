@@ -91,32 +91,33 @@ export function startVisualizerWs(opts: {
         return Promise.resolve({ server: wssInstance, port: currentWsPort });
     }
 
-    const isPortAvailable = (port: number): Promise<boolean> => {
-        return new Promise((resolve) => {
-            const tester = net.createServer();
-            tester.once('error', () => resolve(false));
-            tester.once('listening', () => {
-                tester.close(() => resolve(true));
-            });
-            tester.listen(port, '127.0.0.1');
+    /** Try to bind a WebSocketServer on the given port. Rejects on EADDRINUSE. */
+    const tryListen = (port: number): Promise<WebSocketServer> => {
+        return new Promise((resolve, reject) => {
+            const wss = new WebSocketServer({ port, host: '127.0.0.1' });
+            wss.once('listening', () => resolve(wss));
+            wss.once('error', (err) => reject(err));
         });
     };
 
-    const resolveAvailablePort = async (): Promise<number | null> => {
+    const tryPorts = async (): Promise<{ server: WebSocketServer; port: number } | null> => {
         for (let i = 0; i < maxPortAttempts; i += 1) {
             const port = basePort + i;
-            if (await isPortAvailable(port)) {
-                return port;
+            try {
+                const wss = await tryListen(port);
+                return { server: wss, port };
+            } catch {
+                // EADDRINUSE or other error — try next port
             }
         }
         return null;
     };
 
-    return resolveAvailablePort().then((resolvedPort) => {
-        if (resolvedPort === null) {
+    return tryPorts().then((result) => {
+        if (result === null) {
             return null;
         }
-        const wss = new WebSocketServer({ port: resolvedPort });
+        const { server: wss, port: resolvedPort } = result;
         wssInstance = wss;
         currentWsPort = resolvedPort;
         if (opts.onListening) {opts.onListening(resolvedPort);}
@@ -152,8 +153,6 @@ export function startVisualizerWs(opts: {
                         for (const other of wss.clients) {
                             if (other !== ws && other.readyState === 1) {other.send(rawStr);}
                         }
-                        // The WS server closes only via the "Close" button
-                        // or when the extension host shuts down — no idle timer.
                     }
                 } catch { /* ignore malformed */ }
             });
