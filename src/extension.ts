@@ -92,7 +92,7 @@ const SETTINGS_TO_ENV: Record<string, string> = {
     'figma.apiBaseUrl': 'FIGMA_API_BASE_URL',
     toolOutputSchemaDisable: 'TOOL_OUTPUT_SCHEMA_DISABLE',
     availableToolDomains: 'AVAILABLE_TOOL_DOMAINS',
-    'visualizer.enable': 'VISUALIZER_ENABLE',
+    showVisualizer: 'VISUALIZER_ENABLE',
     'visualizer.wsPort': 'VIS_WS_PORT',
 };
 
@@ -101,23 +101,32 @@ let statusBarItem: vscode.StatusBarItem;
 
 // Visualizer panel (singleton)
 let visualizerPanel: vscode.WebviewPanel | undefined;
+let activeVisualizerPort: number | null = null;
 
 const SELECTED_CHAR_KEY = 'visualizer.selectedChar';
+const TOTAL_TOOLS_USED_KEY = 'visualizer.totalToolsUsed';
+
+function getTotalToolsUsed(context: vscode.ExtensionContext): number {
+    return context.globalState.get<number>(TOTAL_TOOLS_USED_KEY, 0);
+}
+
+function incrementTotalToolsUsed(context: vscode.ExtensionContext): void {
+    const current = getTotalToolsUsed(context);
+    void context.globalState.update(TOTAL_TOOLS_USED_KEY, current + 1);
+}
 
 function showVisualizerPanel(context: vscode.ExtensionContext, wsPort: number): void {
+    activeVisualizerPort = wsPort;
     if (visualizerPanel) {
+        const savedChar = context.globalState.get<string>(SELECTED_CHAR_KEY);
+        visualizerPanel.webview.html = getVisualizerAppHtml(wsPort, context.extensionPath, savedChar);
         visualizerPanel.reveal(vscode.ViewColumn.Two);
         return;
     }
-    visualizerPanel = vscode.window.createWebviewPanel(
-        'mcpVisualizer',
-        'MCP Visualizer',
-        vscode.ViewColumn.Two,
-        {
-            enableScripts: true,
-            retainContextWhenHidden: true,
-        }
-    );
+    visualizerPanel = vscode.window.createWebviewPanel('mcpVisualizer', 'MCP Visualizer', vscode.ViewColumn.Two, {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+    });
     const savedChar = context.globalState.get<string>(SELECTED_CHAR_KEY);
     visualizerPanel.webview.html = getVisualizerAppHtml(wsPort, context.extensionPath, savedChar);
 
@@ -132,15 +141,54 @@ function showVisualizerPanel(context: vscode.ExtensionContext, wsPort: number): 
             }
         },
         undefined,
-        context.subscriptions,
+        context.subscriptions
     );
 
-    visualizerPanel.onDidDispose(() => { visualizerPanel = undefined; }, null, context.subscriptions);
+    visualizerPanel.onDidDispose(
+        () => {
+            visualizerPanel = undefined;
+        },
+        null,
+        context.subscriptions
+    );
+}
+
+async function startVisualizerWithPortFallback(
+    context: vscode.ExtensionContext,
+    basePort: number,
+    openPanelImmediately: boolean
+): Promise<void> {
+    const started = await startVisualizerWs({
+        port: basePort,
+        maxPortAttempts: 100,
+        onRunStarted: () => {
+            const port = activeVisualizerPort ?? basePort;
+            showVisualizerPanel(context, port);
+        },
+        getSelectedChar: () => context.globalState.get<string>(SELECTED_CHAR_KEY),
+        getTotalToolsUsed: () => getTotalToolsUsed(context),
+        onToolFinished: () => incrementTotalToolsUsed(context),
+        onListening: (actualPort: number) => {
+            activeVisualizerPort = actualPort;
+            if (openPanelImmediately) {
+                showVisualizerPanel(context, actualPort);
+            }
+        },
+    });
+    if (started === null) {
+        void vscode.window.showErrorMessage(
+            `Browser DevTools MCP: Visualizer could not start. No available port found in range ${basePort}-${basePort + 99}.`
+        );
+    }
 }
 
 function isExtensionEnabled(): boolean {
     const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
     return config.get<boolean>('enable', true);
+}
+
+function isVisualizerEnabled(config: vscode.WorkspaceConfiguration): boolean {
+    return config.get<boolean>('showVisualizer', false);
 }
 
 function updateStatusBar(): void {
@@ -325,7 +373,9 @@ function installCursorHooks(workspaceFolder: string, hookScriptSrc: string): voi
         if (fs.existsSync(hooksFile)) {
             try {
                 config = JSON.parse(fs.readFileSync(hooksFile, 'utf8')) as HooksConfig;
-            } catch { /* use default */ }
+            } catch {
+                /* use default */
+            }
         }
         if (!config.hooks) {
             config.hooks = {};
@@ -360,7 +410,9 @@ function removeCursorHooks(workspaceFolder: string): void {
         const hookDest = path.join(cursorDir, 'scripts', HOOK_SCRIPT_NAME);
         const hooksFile = path.join(cursorDir, 'hooks.json');
 
-        if (fs.existsSync(hookDest)) {fs.unlinkSync(hookDest);}
+        if (fs.existsSync(hookDest)) {
+            fs.unlinkSync(hookDest);
+        }
 
         if (fs.existsSync(hooksFile)) {
             let config: HooksConfig;
@@ -371,7 +423,9 @@ function removeCursorHooks(workspaceFolder: string): void {
             }
             for (const event of Object.keys(config.hooks ?? {})) {
                 config.hooks[event] = (config.hooks[event] ?? []).filter((h) => !h.command.includes(HOOK_SCRIPT_NAME));
-                if (config.hooks[event].length === 0) {delete config.hooks[event];}
+                if (config.hooks[event].length === 0) {
+                    delete config.hooks[event];
+                }
             }
             if (Object.keys(config.hooks ?? {}).length === 0) {
                 fs.unlinkSync(hooksFile);
@@ -840,32 +894,27 @@ export async function activate(context: vscode.ExtensionContext) {
 
     void maybePromptExtensionUpdate(context);
 
-    // Register Show Visualizer command — only works when visualizer.enable is true
+    // Register Show Visualizer command — only works when showVisualizer is true
     context.subscriptions.push(
-        vscode.commands.registerCommand('browserDevtoolsMcp.showVisualizer', () => {
+        vscode.commands.registerCommand('browserDevtoolsMcp.showVisualizer', async () => {
             const cfg = vscode.workspace.getConfiguration(CONFIG_PREFIX);
-            if (!cfg.get<boolean>('visualizer.enable', false)) {
+            if (!isVisualizerEnabled(cfg)) {
                 void vscode.window.showInformationMessage(
-                    'MCP Visualizer is disabled. Enable it in settings (browserDevtoolsMcp.visualizer.enable) first.',
+                    'MCP Visualizer is disabled. Enable it in settings (browserDevtoolsMcp.showVisualizer) first.'
                 );
                 return;
             }
             const wsPort = cfg.get<number>('visualizer.wsPort', 3020);
-            startVisualizerWs({ port: wsPort, getSelectedChar: () => context.globalState.get<string>(SELECTED_CHAR_KEY) });
-            showVisualizerPanel(context, wsPort);
+            await startVisualizerWithPortFallback(context, wsPort, true);
         })
     );
 
     // Start visualizer WebSocket server + install Cursor hooks if enabled
     // Panel auto-opens on first run_started event from the hooks bridge
     const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
-    if (config.get<boolean>('visualizer.enable', false)) {
+    if (isVisualizerEnabled(config)) {
         const wsPort = config.get<number>('visualizer.wsPort', 3020);
-        startVisualizerWs({
-            port: wsPort,
-            onRunStarted: () => showVisualizerPanel(context, wsPort),
-            getSelectedChar: () => context.globalState.get<string>(SELECTED_CHAR_KEY),
-        });
+        void startVisualizerWithPortFallback(context, wsPort, false);
         syncCursorHooks(context.extensionPath, true);
     }
 
@@ -905,18 +954,19 @@ export async function activate(context: vscode.ExtensionContext) {
                     vscode.window.showInformationMessage(
                         'Browser DevTools MCP: Browser install settings changed. Browsers are being updated; restart the MCP session if it was already running.'
                     );
-                } else if (e.affectsConfiguration(`${CONFIG_PREFIX}.visualizer.enable`)) {
-                    const vizEnabled = vscode.workspace.getConfiguration(CONFIG_PREFIX).get<boolean>('visualizer.enable', false);
+                } else if (e.affectsConfiguration(`${CONFIG_PREFIX}.showVisualizer`)) {
+                    const vizEnabled = vscode.workspace
+                        .getConfiguration(CONFIG_PREFIX)
+                        .get<boolean>('showVisualizer', false);
                     if (vizEnabled) {
-                        const wsPort = vscode.workspace.getConfiguration(CONFIG_PREFIX).get<number>('visualizer.wsPort', 3020);
-                        startVisualizerWs({
-                            port: wsPort,
-                            onRunStarted: () => showVisualizerPanel(context, wsPort),
-                            getSelectedChar: () => context.globalState.get<string>(SELECTED_CHAR_KEY),
-                        });
+                        const wsPort = vscode.workspace
+                            .getConfiguration(CONFIG_PREFIX)
+                            .get<number>('visualizer.wsPort', 3020);
+                        void startVisualizerWithPortFallback(context, wsPort, false);
                         syncCursorHooks(context.extensionPath, true);
                     } else {
                         void closeVisualizer();
+                        activeVisualizerPort = null;
                         syncCursorHooks(context.extensionPath, false);
                     }
                 } else if (e.affectsConfiguration(`${CONFIG_PREFIX}.telemetry.enable`)) {
@@ -932,6 +982,15 @@ export async function activate(context: vscode.ExtensionContext) {
                         'Browser DevTools MCP: Settings changed. Restart the MCP session to apply changes.'
                     );
                 }
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeWorkspaceFolders(async () => {
+            if ((vscode.workspace.workspaceFolders ?? []).length === 0) {
+                await closeVisualizer();
+                activeVisualizerPort = null;
             }
         })
     );
@@ -997,6 +1056,7 @@ async function runUninstallIfNeeded(mcpServerUnregistered: boolean): Promise<voi
 
 export async function deactivate(): Promise<void> {
     await closeVisualizer();
+    activeVisualizerPort = null;
     let mcpServerUnregistered: boolean = false;
     if (isCursor()) {
         mcpServerUnregistered = await unregisterCursorMcp();

@@ -1,38 +1,9 @@
-import { execFile } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import net from 'node:net';
 import { WebSocketServer } from 'ws';
 
 const SHUTDOWN_ACTION = 'shutdown';
-
-// ── Tool usage stats (persisted to disk) ────────────────────────────────────
-const STATS_DIR  = path.join(os.homedir(), '.browser-devtools-mcp');
-const STATS_FILE = path.join(STATS_DIR, 'stats.json');
-
-function readStats(): { totalToolsUsed: number } {
-    try {
-        const raw = fs.readFileSync(STATS_FILE, 'utf8');
-        const parsed = JSON.parse(raw) as unknown;
-        if (parsed && typeof parsed === 'object' && 'totalToolsUsed' in parsed) {
-            return { totalToolsUsed: Number((parsed as Record<string, unknown>).totalToolsUsed) || 0 };
-        }
-    } catch { /* file not yet created */ }
-    return { totalToolsUsed: 0 };
-}
-
-function incrementToolCount(): number {
-    const stats = readStats();
-    stats.totalToolsUsed += 1;
-    try {
-        fs.mkdirSync(STATS_DIR, { recursive: true });
-        fs.writeFileSync(STATS_FILE, JSON.stringify(stats), 'utf8');
-    } catch { /* ignore write errors */ }
-    return stats.totalToolsUsed;
-}
-
-function buildHelloMessage(selectedChar?: string): string {
-    return JSON.stringify({ type: 'hello', version: 1, totalToolsUsed: readStats().totalToolsUsed, selectedChar });
+function buildHelloMessage(totalToolsUsed: number, selectedChar?: string): string {
+    return JSON.stringify({ type: 'hello', version: 1, totalToolsUsed, selectedChar });
 }
 
 /**
@@ -63,44 +34,13 @@ function bufferEvent(payload: string): void {
 
 let wssInstance: WebSocketServer | null = null;
 let idleCloseTimer: NodeJS.Timeout | null = null;
-let portRetrying = false;
+let currentWsPort: number | null = null;
 
 /** Called when the first MCP tool usage or run_started event is received. */
 let onRunStartedCallback: (() => void) | null = null;
 let panelOpened = false;
-
-function freePortAndRetry(port: number, delayMs = 1000): void {
-    if (portRetrying) {return;}
-    portRetrying = true;
-
-    const doRetry = (): void => {
-        setTimeout(() => {
-            portRetrying = false;
-            if (wssInstance === null) {startVisualizerWs({ port });}
-        }, delayMs);
-    };
-
-    if (process.platform === 'win32') {
-        doRetry();
-        return;
-    }
-
-    execFile('lsof', ['-ti', `:${port}`], (err, stdout) => {
-        if (!err && stdout.trim()) {
-            const pids = stdout
-                .trim()
-                .split('\n')
-                .map((s) => parseInt(s.trim(), 10))
-                .filter((pid) => !isNaN(pid) && pid > 0 && pid !== process.pid);
-            for (const pid of pids) {
-                try {
-                    process.kill(pid, 'SIGTERM');
-                } catch { /* ignore */ }
-            }
-        }
-        doRetry();
-    });
-}
+let getTotalToolsUsedCallback: (() => number) | undefined;
+let onToolFinishedCallback: (() => void) | undefined;
 
 function syncClose(): void {
     if (idleCloseTimer !== null) {
@@ -112,6 +52,7 @@ function syncClose(): void {
             wssInstance.close();
         } catch { /* ignore */ }
         wssInstance = null;
+        currentWsPort = null;
     }
 }
 
@@ -134,29 +75,61 @@ export function startVisualizerWs(opts: {
     port?: number;
     onRunStarted?: () => void;
     getSelectedChar?: () => string | undefined;
-} = {}): WebSocketServer | null {
-    const wsPort = opts.port ?? 3020;
+    getTotalToolsUsed?: () => number;
+    onToolFinished?: () => void;
+    onListening?: (actualPort: number) => void;
+    maxPortAttempts?: number;
+} = {}): Promise<{ server: WebSocketServer; port: number } | null> {
+    const basePort = opts.port ?? 3020;
+    const maxPortAttempts = Math.max(1, opts.maxPortAttempts ?? 100);
     if (opts.onRunStarted  !== undefined) {onRunStartedCallback    = opts.onRunStarted;}
     if (opts.getSelectedChar !== undefined) {getSelectedCharCallback = opts.getSelectedChar;}
-    if (wssInstance !== null) {return wssInstance;}
+    if (opts.getTotalToolsUsed !== undefined) {getTotalToolsUsedCallback = opts.getTotalToolsUsed;}
+    if (opts.onToolFinished !== undefined) {onToolFinishedCallback = opts.onToolFinished;}
+    if (wssInstance !== null && currentWsPort !== null) {
+        if (opts.onListening) {opts.onListening(currentWsPort);}
+        return Promise.resolve({ server: wssInstance, port: currentWsPort });
+    }
 
-    try {
-        const wss = new WebSocketServer({ port: wsPort });
+    const isPortAvailable = (port: number): Promise<boolean> => {
+        return new Promise((resolve) => {
+            const tester = net.createServer();
+            tester.once('error', () => resolve(false));
+            tester.once('listening', () => {
+                tester.close(() => resolve(true));
+            });
+            tester.listen(port, '127.0.0.1');
+        });
+    };
+
+    const resolveAvailablePort = async (): Promise<number | null> => {
+        for (let i = 0; i < maxPortAttempts; i += 1) {
+            const port = basePort + i;
+            if (await isPortAvailable(port)) {
+                return port;
+            }
+        }
+        return null;
+    };
+
+    return resolveAvailablePort().then((resolvedPort) => {
+        if (resolvedPort === null) {
+            return null;
+        }
+        const wss = new WebSocketServer({ port: resolvedPort });
         wssInstance = wss;
+        currentWsPort = resolvedPort;
+        if (opts.onListening) {opts.onListening(resolvedPort);}
 
         wss.on('error', (err: unknown) => {
-            const code = (err as NodeJS.ErrnoException)?.code;
-            if (code === 'EADDRINUSE') {
-                wssInstance = null;
-                console.error(`[visualizer] Port ${wsPort} is already in use — auto-retrying after port cleanup…`);
-                freePortAndRetry(wsPort);
-            } else {
-                wssInstance = null;
-            }
+            console.error('[visualizer] WebSocket server error:', err);
+            wssInstance = null;
+            currentWsPort = null;
         });
 
         wss.on('connection', (ws) => {
-            ws.send(buildHelloMessage(getSelectedCharCallback?.()));
+            const totalToolsUsed = getTotalToolsUsedCallback ? getTotalToolsUsedCallback() : 0;
+            ws.send(buildHelloMessage(totalToolsUsed, getSelectedCharCallback?.()));
             for (const payload of eventBuffer) {
                 if (ws.readyState === 1) {ws.send(payload);}
             }
@@ -174,7 +147,7 @@ export function startVisualizerWs(opts: {
                             eventBuffer.length = 0;
                             if (onRunStartedCallback) {onRunStartedCallback();}
                         }
-                        if (message.type === 'tool_finished') {incrementToolCount();}
+                        if (message.type === 'tool_finished' && onToolFinishedCallback) {onToolFinishedCallback();}
                         bufferEvent(rawStr);
                         for (const other of wss.clients) {
                             if (other !== ws && other.readyState === 1) {other.send(rawStr);}
@@ -186,19 +159,14 @@ export function startVisualizerWs(opts: {
             });
         });
 
-        wss.on('close', () => { clearIdleCloseTimer(); wssInstance = null; });
-        console.log(`[Browser DevTools MCP] Visualizer WebSocket server listening on port ${wsPort}`);
-        return wss;
-    } catch (err: unknown) {
-        const code = (err as NodeJS.ErrnoException)?.code;
-        if (code === 'EADDRINUSE') {
+        wss.on('close', () => {
+            clearIdleCloseTimer();
             wssInstance = null;
-            freePortAndRetry(wsPort);
-        } else {
-            wssInstance = null;
-        }
-        return null;
-    }
+            currentWsPort = null;
+        });
+        console.log(`[Browser DevTools MCP] Visualizer WebSocket server listening on port ${resolvedPort}`);
+        return { server: wss, port: resolvedPort };
+    });
 }
 
 export function closeVisualizer(): Promise<void> {

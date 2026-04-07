@@ -1463,6 +1463,8 @@ export class HudScene extends Phaser.Scene implements HudContext {
     }
 
     if (ev.type === 'tool_started') {
+      // A new tool call means a new interaction cycle; hide any open/scheduled response parchment.
+      this.parchmentPanel.cancelAndClear();
       const toolName = (ev as { toolName?: string }).toolName as string | undefined;
       if (!toolName) return;
 

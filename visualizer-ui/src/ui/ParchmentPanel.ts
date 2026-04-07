@@ -99,14 +99,14 @@ export class ParchmentPanel {
     title.setDepth(D + 2);
     this.group.push(title);
 
-    // Close button — top right
-    const closeBtn = this.scene.add.text(WA_LEFT + WA_WIDTH, WA_TOP + 10, '[ ✕ ]', {
+    // Close button — top center (manual dismiss for user)
+    const closeBtn = this.scene.add.text(PX, WA_TOP + 10, '[ ✕ ]', {
       fontSize: '13px',
       fontFamily: FONT_BTN,
       color: '#7a3a00',
       fontStyle: 'bold',
     });
-    closeBtn.setOrigin(1, 0);
+    closeBtn.setOrigin(0.5, 0);
     closeBtn.setDepth(D + 3);
     closeBtn.setInteractive({ useHandCursor: true });
     closeBtn.on('pointerover',  () => closeBtn.setColor('#c0392b'));

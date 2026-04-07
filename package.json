@@ -287,10 +287,10 @@
           "default": "",
           "description": "Comma-separated tool domains to enable (e.g. navigation,interaction,a11y). Empty = all. Browser: a11y, content, debug, figma, interaction, navigation, o11y, react, run, stub, sync. Node: debug, run."
         },
-        "browserDevtoolsMcp.visualizer.enable": {
+        "browserDevtoolsMcp.showVisualizer": {
           "type": "boolean",
           "default": false,
-          "description": "Enable Phaser-based visualizer UI and WebSocket server for real-time tool event visualization."
+          "description": "Show Visualizer: Enabled/Disabled. Controls whether the visualizer UI and its WebSocket server are active."
         },
         "browserDevtoolsMcp.visualizer.wsPort": {
           "type": "number",
