@@ -161,7 +161,7 @@ async function startVisualizerWithPortFallback(
     const started = await startVisualizerWs({
         port: basePort,
         maxPortAttempts: 100,
-        onRunStarted: () => {
+        onFirstMcpTool: () => {
             const port = activeVisualizerPort ?? basePort;
             showVisualizerPanel(context, port);
         },

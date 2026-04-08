@@ -39,6 +39,7 @@ let currentWsPort: number | null = null;
 /** Called when the first MCP tool usage or run_started event is received. */
 let onRunStartedCallback: (() => void) | null = null;
 let panelOpened = false;
+let onFirstMcpToolCallback: (() => void) | null = null;
 let getTotalToolsUsedCallback: (() => number) | undefined;
 let onToolFinishedCallback: (() => void) | undefined;
 
@@ -74,6 +75,7 @@ let getSelectedCharCallback: (() => string | undefined) | undefined;
 export function startVisualizerWs(opts: {
     port?: number;
     onRunStarted?: () => void;
+    onFirstMcpTool?: () => void;
     getSelectedChar?: () => string | undefined;
     getTotalToolsUsed?: () => number;
     onToolFinished?: () => void;
@@ -83,6 +85,7 @@ export function startVisualizerWs(opts: {
     const basePort = opts.port ?? 3020;
     const maxPortAttempts = Math.max(1, opts.maxPortAttempts ?? 100);
     if (opts.onRunStarted  !== undefined) {onRunStartedCallback    = opts.onRunStarted;}
+    if (opts.onFirstMcpTool !== undefined) {onFirstMcpToolCallback = opts.onFirstMcpTool;}
     if (opts.getSelectedChar !== undefined) {getSelectedCharCallback = opts.getSelectedChar;}
     if (opts.getTotalToolsUsed !== undefined) {getTotalToolsUsedCallback = opts.getTotalToolsUsed;}
     if (opts.onToolFinished !== undefined) {onToolFinishedCallback = opts.onToolFinished;}
@@ -144,6 +147,12 @@ export function startVisualizerWs(opts: {
                     if (message.type === 'control' && message.action === SHUTDOWN_ACTION) {
                         void closeVisualizer();
                     } else if (isInjectableEvent(message)) {
+                        const isMcpToolEvent = (message.type === 'tool_started' || message.type === 'tool_finished')
+                            && message.source === 'mcp';
+                        if (isMcpToolEvent && !panelOpened) {
+                            panelOpened = true;
+                            if (onFirstMcpToolCallback) {onFirstMcpToolCallback();}
+                        }
                         if (message.type === 'run_started') {
                             eventBuffer.length = 0;
                             if (onRunStartedCallback) {onRunStartedCallback();}
@@ -162,6 +171,7 @@ export function startVisualizerWs(opts: {
             clearIdleCloseTimer();
             wssInstance = null;
             currentWsPort = null;
+            panelOpened = false;
         });
         console.log(`[Browser DevTools MCP] Visualizer WebSocket server listening on port ${resolvedPort}`);
         return { server: wss, port: resolvedPort };
@@ -173,6 +183,7 @@ export function closeVisualizer(): Promise<void> {
     if (wssInstance === null) {return Promise.resolve();}
     const wss = wssInstance;
     wssInstance = null;
+    panelOpened = false;
     // Force-terminate all connected clients (Phaser UI, hook scripts) so the
     // server closes immediately without waiting for graceful handshakes.
     for (const client of wss.clients) {

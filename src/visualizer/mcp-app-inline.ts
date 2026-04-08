@@ -121,6 +121,9 @@ export function getVisualizerAppHtml(wsPort: number, extensionPath: string, save
         if(data.runId) runEl.textContent=data.runId.slice(0,8)+'…';
         // Debug: show last event type + toolName in HUD
         var label = data.type + (data.toolName ? ':'+data.toolName : '');
+        if(data.type === 'hello' && typeof data.totalToolsUsed === 'number'){
+          label += ' (total used: ' + data.totalToolsUsed + ')';
+        }
         lastEvEl.textContent = label;
       };
     }catch(_){setConn(false);if(!closed){setTimeout(connect,3000);}}

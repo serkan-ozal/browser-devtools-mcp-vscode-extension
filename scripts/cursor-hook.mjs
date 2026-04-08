@@ -50,8 +50,10 @@ const sharedEvents = Array.isArray(mapped) ? mapped : [mapped];
 
 // ── Send to visualizer WS ─────────────────────────────────────────────────────
 for (const ev of sharedEvents) {
-  await sendEvent(ev).catch(() => {
-    // Visualizer not running — silently ignore so Cursor isn't affected
+  await sendEvent(ev).catch((err) => {
+    // Keep Cursor flow non-blocking, but surface transport failures for debugging.
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write('[browser-devtools-hook] send failed: ' + message + '\n');
   });
 }
 process.exit(0);
@@ -156,6 +158,7 @@ function mapToSharedEvent(hook) {
       ));
       return {
         type: 'tool_started',
+        source: 'mcp',
         runId,
         agentId,
         ts,
@@ -175,6 +178,7 @@ function mapToSharedEvent(hook) {
       ));
       return {
         type: 'tool_finished',
+        source: 'mcp',
         runId,
         agentId,
         ts,
