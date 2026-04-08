@@ -7,7 +7,9 @@ Phaser-based UI for MCP agent events. Single canvas, WebSocket to the visualizer
 From repo root:
 
 ```bash
-npm run visualizer:ui
+cd visualizer-ui
+npm install
+npm run dev
 ```
 
 Or from this folder:
@@ -17,7 +19,7 @@ npm install
 npm run dev
 ```
 
-Opens at `http://localhost:3000` (or `VIS_UI_PORT`). Connect the MCP server with streamable-http and run tools to see events.
+Opens at `http://localhost:3000` (or `VIS_UI_PORT`). Enable **Show Visualizer** in the extension and run MCP tools; Cursor/extension will send tool events to the Visualizer WebSocket.
 
 Demo preview:
 
@@ -25,4 +27,4 @@ Demo preview:
 http://localhost:3000/?demo=preview
 ```
 
-(`?demo=chars` animasyonlu karakter demosu; diğer `demo` değerleri kısa bir run akışı üretir.)
+(`?demo=chars` runs the animated character demo; other `demo` values produce a short sample run flow.)
