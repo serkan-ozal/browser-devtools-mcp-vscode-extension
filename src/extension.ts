@@ -3,6 +3,8 @@ import * as https from 'node:https';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { startVisualizerWs, closeVisualizer } from './visualizer/ws';
+import { getVisualizerAppHtml } from './visualizer/mcp-app-inline';
 import {
     ensurePlaywrightBrowsersInstalled,
     installPlaywrightBrowsersByGroups,
@@ -90,14 +92,104 @@ const SETTINGS_TO_ENV: Record<string, string> = {
     'figma.apiBaseUrl': 'FIGMA_API_BASE_URL',
     toolOutputSchemaDisable: 'TOOL_OUTPUT_SCHEMA_DISABLE',
     availableToolDomains: 'AVAILABLE_TOOL_DOMAINS',
+    showVisualizer: 'VISUALIZER_ENABLE',
+    'visualizer.wsPort': 'VIS_WS_PORT',
 };
 
 // Status bar item
 let statusBarItem: vscode.StatusBarItem;
 
+// Visualizer panel (singleton)
+let visualizerPanel: vscode.WebviewPanel | undefined;
+let activeVisualizerPort: number | null = null;
+
+const SELECTED_CHAR_KEY = 'visualizer.selectedChar';
+const TOTAL_TOOLS_USED_KEY = 'visualizer.totalToolsUsed';
+
+function getTotalToolsUsed(context: vscode.ExtensionContext): number {
+    return context.globalState.get<number>(TOTAL_TOOLS_USED_KEY, 0);
+}
+
+function incrementTotalToolsUsed(context: vscode.ExtensionContext): void {
+    const current = getTotalToolsUsed(context);
+    void context.globalState.update(TOTAL_TOOLS_USED_KEY, current + 1);
+}
+
+function showVisualizerPanel(context: vscode.ExtensionContext, wsPort: number): void {
+    activeVisualizerPort = wsPort;
+    if (visualizerPanel) {
+        const savedChar = context.globalState.get<string>(SELECTED_CHAR_KEY);
+        visualizerPanel.webview.html = getVisualizerAppHtml(wsPort, context.extensionPath, savedChar);
+        visualizerPanel.reveal(vscode.ViewColumn.Two);
+        return;
+    }
+    visualizerPanel = vscode.window.createWebviewPanel('mcpVisualizer', 'MCP Visualizer', vscode.ViewColumn.Two, {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+    });
+    const savedChar = context.globalState.get<string>(SELECTED_CHAR_KEY);
+    visualizerPanel.webview.html = getVisualizerAppHtml(wsPort, context.extensionPath, savedChar);
+
+    // Persist character selection when the webview sends a save_char message
+    visualizerPanel.webview.onDidReceiveMessage(
+        (msg: unknown) => {
+            if (msg && typeof msg === 'object' && (msg as Record<string, unknown>).type === 'save_char') {
+                const char = (msg as Record<string, unknown>).char;
+                if (typeof char === 'string') {
+                    void context.globalState.update(SELECTED_CHAR_KEY, char);
+                }
+            }
+        },
+        undefined,
+        context.subscriptions
+    );
+
+    visualizerPanel.onDidDispose(
+        () => {
+            visualizerPanel = undefined;
+        },
+        null,
+        context.subscriptions
+    );
+}
+
+async function startVisualizerWithPortFallback(
+    context: vscode.ExtensionContext,
+    basePort: number,
+    openPanelImmediately: boolean
+): Promise<void> {
+    const started = await startVisualizerWs({
+        port: basePort,
+        maxPortAttempts: 100,
+        onRunStarted: () => {
+            const port = activeVisualizerPort ?? basePort;
+            showVisualizerPanel(context, port);
+        },
+        getSelectedChar: () => context.globalState.get<string>(SELECTED_CHAR_KEY),
+        getTotalToolsUsed: () => getTotalToolsUsed(context),
+        onToolFinished: () => incrementTotalToolsUsed(context),
+        onListening: (actualPort: number) => {
+            activeVisualizerPort = actualPort;
+            if (openPanelImmediately) {
+                showVisualizerPanel(context, actualPort);
+            }
+            syncCursorHooks(context.extensionPath, true, actualPort);
+        },
+    });
+    if (started === null) {
+        void vscode.window.showErrorMessage(
+            `Browser DevTools MCP: Visualizer could not start. No available port found in range ${basePort}-${basePort + 99}.`
+        );
+    }
+}
+
 function isExtensionEnabled(): boolean {
     const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
     return config.get<boolean>('enable', true);
+}
+
+function isVisualizerEnabled(config: vscode.WorkspaceConfiguration): boolean {
+    return config.get<boolean>('showVisualizer', false);
 }
 
 function updateStatusBar(): void {
@@ -235,6 +327,144 @@ async function maybePromptExtensionUpdate(context: vscode.ExtensionContext): Pro
         );
     }
 }
+
+// ── Cursor Hooks bridge ──────────────────────────────────────────────────────
+
+/** Hook events the visualizer listens for. */
+const HOOK_EVENTS = [
+    'sessionStart',
+    'beforeMCPExecution',
+    'afterMCPExecution',
+    'preToolUse',
+    'postToolUse',
+    'afterAgentResponse',
+    'stop',
+] as const;
+
+/** Marker used to identify hook entries installed by this extension. */
+const HOOK_SCRIPT_NAME = 'browser-devtools-hook.mjs';
+
+interface HookEntry {
+    type: string;
+    command: string;
+    timeout: number;
+    failClosed: boolean;
+}
+
+interface HooksConfig {
+    version: number;
+    hooks: Record<string, HookEntry[]>;
+}
+
+/**
+ * Copy cursor-hook.mjs to <workspace>/.cursor/scripts/ and merge hook entries
+ * into <workspace>/.cursor/hooks.json. Existing third-party entries are preserved.
+ */
+function installCursorHooks(workspaceFolder: string, hookScriptSrc: string, wsPort?: number): void {
+    try {
+        const cursorDir = path.join(workspaceFolder, '.cursor');
+        const scriptsDir = path.join(cursorDir, 'scripts');
+        const hookDest = path.join(scriptsDir, HOOK_SCRIPT_NAME);
+        const hooksFile = path.join(cursorDir, 'hooks.json');
+
+        fs.mkdirSync(scriptsDir, { recursive: true });
+        fs.copyFileSync(hookScriptSrc, hookDest);
+
+        let config: HooksConfig = { version: 1, hooks: {} };
+        if (fs.existsSync(hooksFile)) {
+            try {
+                config = JSON.parse(fs.readFileSync(hooksFile, 'utf8')) as HooksConfig;
+            } catch {
+                /* use default */
+            }
+        }
+        if (!config.hooks) {
+            config.hooks = {};
+        }
+
+        // NODE_PATH ensures the hook script can import 'ws' even when the
+        // workspace doesn't have it installed — we point to the extension's own node_modules.
+        const extNodeModules = path.join(path.dirname(path.dirname(hookScriptSrc)), 'node_modules');
+        const command =
+            wsPort !== undefined
+                ? process.platform === 'win32'
+                    ? `set VIS_WS_PORT=${wsPort}&& set NODE_PATH=${extNodeModules}&& node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`
+                    : `VIS_WS_PORT=${wsPort} NODE_PATH=${extNodeModules} node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`
+                : process.platform === 'win32'
+                  ? `set NODE_PATH=${extNodeModules}&& node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`
+                  : `NODE_PATH=${extNodeModules} node ./.cursor/scripts/${HOOK_SCRIPT_NAME}`;
+        const entry: HookEntry = { type: 'command', command, timeout: 5, failClosed: false };
+
+        for (const event of HOOK_EVENTS) {
+            if (!config.hooks[event]) {
+                config.hooks[event] = [];
+            }
+            // Remove stale entries from a previous install, then append fresh one
+            config.hooks[event] = config.hooks[event].filter((h) => !h.command.includes(HOOK_SCRIPT_NAME));
+            config.hooks[event].push(entry);
+        }
+
+        fs.writeFileSync(hooksFile, JSON.stringify(config, null, 2) + '\n', 'utf8');
+        console.log('[Browser DevTools MCP] Cursor hooks installed in', workspaceFolder);
+    } catch (err) {
+        console.warn('[Browser DevTools MCP] Failed to install Cursor hooks:', err);
+    }
+}
+
+/**
+ * Remove hook entries and the copied script from <workspace>/.cursor/.
+ * hooks.json is deleted only if it becomes empty after removal.
+ */
+function removeCursorHooks(workspaceFolder: string): void {
+    try {
+        const cursorDir = path.join(workspaceFolder, '.cursor');
+        const hookDest = path.join(cursorDir, 'scripts', HOOK_SCRIPT_NAME);
+        const hooksFile = path.join(cursorDir, 'hooks.json');
+
+        if (fs.existsSync(hookDest)) {
+            fs.unlinkSync(hookDest);
+        }
+
+        if (fs.existsSync(hooksFile)) {
+            let config: HooksConfig;
+            try {
+                config = JSON.parse(fs.readFileSync(hooksFile, 'utf8')) as HooksConfig;
+            } catch {
+                return;
+            }
+            for (const event of Object.keys(config.hooks ?? {})) {
+                config.hooks[event] = (config.hooks[event] ?? []).filter((h) => !h.command.includes(HOOK_SCRIPT_NAME));
+                if (config.hooks[event].length === 0) {
+                    delete config.hooks[event];
+                }
+            }
+            if (Object.keys(config.hooks ?? {}).length === 0) {
+                fs.unlinkSync(hooksFile);
+            } else {
+                fs.writeFileSync(hooksFile, JSON.stringify(config, null, 2) + '\n', 'utf8');
+            }
+        }
+        console.log('[Browser DevTools MCP] Cursor hooks removed from', workspaceFolder);
+    } catch (err) {
+        console.warn('[Browser DevTools MCP] Failed to remove Cursor hooks:', err);
+    }
+}
+
+/**
+ * Install or remove Cursor hooks in every open workspace folder.
+ */
+function syncCursorHooks(extensionPath: string, enable: boolean, wsPort?: number): void {
+    const hookSrc = path.join(extensionPath, 'scripts', 'cursor-hook.mjs');
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+        if (enable) {
+            installCursorHooks(folder.uri.fsPath, hookSrc, wsPort);
+        } else {
+            removeCursorHooks(folder.uri.fsPath);
+        }
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 /**
  * Called once on first install or when extension version changes.
@@ -675,6 +905,29 @@ export async function activate(context: vscode.ExtensionContext) {
 
     void maybePromptExtensionUpdate(context);
 
+    // Register Show Visualizer command — only works when showVisualizer is true
+    context.subscriptions.push(
+        vscode.commands.registerCommand('browserDevtoolsMcp.showVisualizer', async () => {
+            const cfg = vscode.workspace.getConfiguration(CONFIG_PREFIX);
+            if (!isVisualizerEnabled(cfg)) {
+                void vscode.window.showInformationMessage(
+                    'MCP Visualizer is disabled. Enable it in settings (browserDevtoolsMcp.showVisualizer) first.'
+                );
+                return;
+            }
+            const wsPort = cfg.get<number>('visualizer.wsPort', 3020);
+            await startVisualizerWithPortFallback(context, wsPort, true);
+        })
+    );
+
+    // Start visualizer WebSocket server + install Cursor hooks if enabled
+    // Panel auto-opens on first run_started event from the hooks bridge
+    const config = vscode.workspace.getConfiguration(CONFIG_PREFIX);
+    if (isVisualizerEnabled(config)) {
+        const wsPort = config.get<number>('visualizer.wsPort', 3020);
+        void startVisualizerWithPortFallback(context, wsPort, false);
+    }
+
     // Watch for configuration changes
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
@@ -711,6 +964,20 @@ export async function activate(context: vscode.ExtensionContext) {
                     vscode.window.showInformationMessage(
                         'Browser DevTools MCP: Browser install settings changed. Browsers are being updated; restart the MCP session if it was already running.'
                     );
+                } else if (e.affectsConfiguration(`${CONFIG_PREFIX}.showVisualizer`)) {
+                    const vizEnabled = vscode.workspace
+                        .getConfiguration(CONFIG_PREFIX)
+                        .get<boolean>('showVisualizer', false);
+                    if (vizEnabled) {
+                        const wsPort = vscode.workspace
+                            .getConfiguration(CONFIG_PREFIX)
+                            .get<number>('visualizer.wsPort', 3020);
+                        void startVisualizerWithPortFallback(context, wsPort, false);
+                    } else {
+                        void closeVisualizer();
+                        activeVisualizerPort = null;
+                        syncCursorHooks(context.extensionPath, false);
+                    }
                 } else if (e.affectsConfiguration(`${CONFIG_PREFIX}.telemetry.enable`)) {
                     syncTelemetryConfigFromVscodeSetting();
                 } else {
@@ -728,6 +995,15 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeWorkspaceFolders(async () => {
+            if ((vscode.workspace.workspaceFolders ?? []).length === 0) {
+                await closeVisualizer();
+                activeVisualizerPort = null;
+            }
+        })
+    );
+
     console.log('Browser DevTools MCP extension activated successfully');
 }
 
@@ -735,6 +1011,11 @@ export async function activate(context: vscode.ExtensionContext) {
  * Called when this process successfully deleted .extension-version in runUninstallIfNeeded (so only one process calls it when many deactivate concurrently).
  */
 async function onUninstall(mcpServerUnregistered: boolean): Promise<void> {
+    // Remove Cursor hooks from all open workspace folders
+    if (extensionPathForDeactivate) {
+        syncCursorHooks(extensionPathForDeactivate, false);
+    }
+
     try {
         const rulePath = path.join(os.homedir(), '.cursor', 'rules', CURSOR_RULE_FILE_NAME);
         if (fs.existsSync(rulePath)) {
@@ -783,6 +1064,8 @@ async function runUninstallIfNeeded(mcpServerUnregistered: boolean): Promise<voi
 }
 
 export async function deactivate(): Promise<void> {
+    await closeVisualizer();
+    activeVisualizerPort = null;
     let mcpServerUnregistered: boolean = false;
     if (isCursor()) {
         mcpServerUnregistered = await unregisterCursorMcp();

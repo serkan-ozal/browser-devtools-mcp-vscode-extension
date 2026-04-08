@@ -253,6 +253,44 @@ Use execute to fill the login form and click submit in one call
 Run a script that calls callTool('navigation_go-to', { url: '...' }) then callTool('a11y_take-aria-snapshot', {}, true)
 ```
 
+## Visualizer UI
+
+Visualizer UI screenshot:
+
+![Visualizer UI](visualizer-ui/public/assets/pixel-browser-devtools-mcp.png)
+
+Visualizer UI renders MCP tool events as an animated scene. The UI connects to the Visualizer WebSocket stream at `ws://localhost:<wsPort>`.
+
+### How to open
+
+1. Open the `Browser DevTools MCP` panel in VS Code/Cursor.
+2. Set `Show Visualizer` to `true`.
+3. Run `Browser DevTools MCP: Restart Server`.
+4. Run any MCP tool (for example `navigation_go-to`, then `content_take-screenshot`).
+
+If the panel does not open automatically, open Command Palette (`Cmd+Shift+P`) and run `Browser DevTools MCP: Show Visualizer`.
+
+Alternative (run Visualizer UI locally for development):
+
+From repo root:
+
+`cd visualizer-ui`
+`npm install`
+`npm run dev`
+
+Open `http://localhost:3000` in your browser.
+
+### How it works (summary)
+
+- The extension starts a Visualizer WebSocket server on `browserDevtoolsMcp.visualizer.wsPort`.
+- The UI reads `VIS_WS_PORT` in `visualizer-ui/src/main.ts` and connects to `ws://localhost:<wsPort>`.
+- Tool events (`run_started`, `tool_started`, `tool_finished`, `run_done`, etc.) are represented in the scene.
+
+### Settings you should configure
+
+1. `Show Visualizer`: set to `true` to enable both the webview UI and the Visualizer WebSocket server.
+2. `browserDevtoolsMcp.visualizer.wsPort` (default `3020`): change this if the port is busy, then run `Restart Server`.
+
 ## Available MCP Tools
 
 ### Navigation Tools

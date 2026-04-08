@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visualizer</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #1a1a1a; font-family: system-ui, -apple-system, sans-serif; }
+    #game-container { display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .vis-close {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 20;
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 14px;
+      background: rgba(15, 23, 42, 0.92);
+      color: #f8fafc;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    .vis-close:hover { background: rgba(30, 41, 59, 0.96); }
+    body.visualizer-closed #game-container { display: none; }
+    .closed-note {
+      display: none;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      color: #cbd5e1;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+    }
+    body.visualizer-closed .closed-note { display: flex; }
+  </style>
+</head>
+<body>
+  <button id="close-visualizer" class="vis-close" type="button">Close</button>
+  <div id="game-container"></div>
+  <div class="closed-note">Visualizer closed.</div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
