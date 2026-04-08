@@ -99,18 +99,20 @@ export class ParchmentPanel {
     title.setDepth(D + 2);
     this.group.push(title);
 
-    // Close button — top center (manual dismiss for user)
-    const closeBtn = this.scene.add.text(PX, WA_TOP + 10, '[ ✕ ]', {
-      fontSize: '13px',
+    // Close button — top-right with strong contrast/background
+    const closeBtn = this.scene.add.text(WA_LEFT + WA_WIDTH - 8, WA_TOP + 10, 'Close', {
+      fontSize: '12px',
       fontFamily: FONT_BTN,
-      color: '#7a3a00',
+      color: '#fff7e6',
       fontStyle: 'bold',
+      backgroundColor: '#8b3a14',
+      padding: { x: 8, y: 3 },
     });
-    closeBtn.setOrigin(0.5, 0);
-    closeBtn.setDepth(D + 3);
+    closeBtn.setOrigin(1, 0);
+    closeBtn.setDepth(D + 4);
     closeBtn.setInteractive({ useHandCursor: true });
-    closeBtn.on('pointerover',  () => closeBtn.setColor('#c0392b'));
-    closeBtn.on('pointerout',   () => closeBtn.setColor('#7a3a00'));
+    closeBtn.on('pointerover',  () => closeBtn.setBackgroundColor('#b8451c'));
+    closeBtn.on('pointerout',   () => closeBtn.setBackgroundColor('#8b3a14'));
     closeBtn.on('pointerdown',  () => this.clear());
     this.group.push(closeBtn);
 
