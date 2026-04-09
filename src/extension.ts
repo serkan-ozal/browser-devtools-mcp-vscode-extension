@@ -44,6 +44,10 @@ const OPEN_VSX_EXTENSION_API_URL = 'https://open-vsx.org/api/serkan-ozal/browser
 const LAST_UPDATE_PROMPTED_AT_KEY = 'last-update-prompted-at';
 const UPDATE_PROMPT_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+const STAR_PROMPT_KEY = 'star-prompt-state'; // 'dismissed' | timestamp (number)
+const STAR_PROMPT_DISMISS_MS = 24 * 60 * 60 * 1000; // 1 day (dialog closed without choice)
+const GITHUB_REPO_URL = 'https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension';
+
 let cachedMcpServerPath: string | null = null;
 
 /** Set in activate; deactivate receives no context so we keep these for .obsolete check and runUninstallIfNeeded. */
@@ -325,6 +329,36 @@ async function maybePromptExtensionUpdate(context: vscode.ExtensionContext): Pro
         void vscode.window.showWarningMessage(
             `Browser DevTools MCP: Failed to install update automatically. Please update from Extensions. ${msg}`
         );
+    }
+}
+
+async function maybePromptGitHubStar(context: vscode.ExtensionContext): Promise<void> {
+    const state = context.globalState.get<string | number>(STAR_PROMPT_KEY);
+
+    // Permanently dismissed
+    if (state === 'dismissed') {
+        return;
+    }
+
+    // Cooldown: dialog closed without choice → 1 day
+    if (typeof state === 'number' && Date.now() - state < STAR_PROMPT_DISMISS_MS) {
+        return;
+    }
+
+    const choice = await vscode.window.showInformationMessage(
+        'Enjoying Browser DevTools MCP? Give us a ⭐ on GitHub!',
+        '⭐ Star on GitHub',
+        "Don't Ask Again"
+    );
+
+    if (choice === '⭐ Star on GitHub') {
+        void vscode.env.openExternal(vscode.Uri.parse(GITHUB_REPO_URL));
+        await context.globalState.update(STAR_PROMPT_KEY, 'dismissed');
+    } else if (choice === "Don't Ask Again") {
+        await context.globalState.update(STAR_PROMPT_KEY, 'dismissed');
+    } else {
+        // Dialog closed without clicking any button → 1 day cooldown
+        await context.globalState.update(STAR_PROMPT_KEY, Date.now());
     }
 }
 
@@ -904,6 +938,7 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     void maybePromptExtensionUpdate(context);
+    void maybePromptGitHubStar(context);
 
     // Register Show Visualizer command — only works when showVisualizer is true
     context.subscriptions.push(
