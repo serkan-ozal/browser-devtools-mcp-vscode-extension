@@ -1,5 +1,14 @@
 # Browser DevTools MCP for VS Code & Cursor
 
+> ## ⚠️ Deprecated — moved to IronBee DevTools
+>
+> **This extension is deprecated and no longer maintained.** It has been rebranded as **IronBee DevTools**.
+> Please uninstall this extension and install the new one to keep getting updates:
+>
+> 👉 **[IronBee DevTools on Open VSX](https://open-vsx.org/extension/ironbee-ai/ironbee-devtools-vscode)** (`ironbee-ai.ironbee-devtools-vscode`)
+>
+> When this extension is active, it will prompt you to switch automatically.
+
 [![Open VSX Registry](https://img.shields.io/open-vsx/v/serkan-ozal/browser-devtools-mcp-vscode)](https://open-vsx.org/extension/serkan-ozal/browser-devtools-mcp-vscode)
 [![GitHub](https://img.shields.io/github/stars/serkan-ozal/browser-devtools-mcp-vscode-extension?style=social)](https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
