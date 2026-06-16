@@ -48,6 +48,14 @@ const STAR_PROMPT_KEY = 'star-prompt-state'; // 'dismissed' | timestamp (number)
 const STAR_PROMPT_DISMISS_MS = 24 * 60 * 60 * 1000; // 1 day (dialog closed without choice)
 const GITHUB_REPO_URL = 'https://github.com/serkan-ozal/browser-devtools-mcp-vscode-extension';
 
+// This extension is deprecated and rebranded as "IronBee DevTools". Prompt users to migrate.
+const REBRAND_EXTENSION_ID = 'ironbee-ai.ironbee-devtools-vscode';
+const REBRAND_EXTENSION_NAME = 'IronBee DevTools';
+const REBRAND_EXTENSION_PAGE_URL = 'https://open-vsx.org/extension/ironbee-ai/ironbee-devtools-vscode';
+const REBRAND_WEBSITE_URL = 'https://ironbee.ai';
+const REBRAND_PROMPT_KEY = 'rebrand-migration-prompted-at'; // timestamp (number) of last prompt
+const REBRAND_PROMPT_COOLDOWN_MS = 24 * 60 * 60 * 1000; // re-prompt at most once per day
+
 let cachedMcpServerPath: string | null = null;
 
 /** Set in activate; deactivate receives no context so we keep these for .obsolete check and runUninstallIfNeeded. */
@@ -359,6 +367,71 @@ async function maybePromptGitHubStar(context: vscode.ExtensionContext): Promise<
     } else {
         // Dialog closed without clicking any button → 1 day cooldown
         await context.globalState.update(STAR_PROMPT_KEY, Date.now());
+    }
+}
+
+/**
+ * This extension has been deprecated and rebranded as "IronBee DevTools".
+ * Prompt the user on activation to migrate. Shown at most once per day; "Remind Me Later"
+ * (or dismissing the dialog) also waits one day before prompting again.
+ */
+async function maybePromptRebrandMigration(context: vscode.ExtensionContext): Promise<void> {
+    const now: number = Date.now();
+    const lastPromptedAt: number = context.globalState.get<number>(REBRAND_PROMPT_KEY, 0);
+    if (now - lastPromptedAt < REBRAND_PROMPT_COOLDOWN_MS) {
+        return;
+    }
+    // Record the prompt up-front so reloads within the cooldown window don't re-show it.
+    await context.globalState.update(REBRAND_PROMPT_KEY, now);
+
+    const choice = await vscode.window.showWarningMessage(
+        `Browser DevTools MCP has been rebranded as "${REBRAND_EXTENSION_NAME}" (${REBRAND_WEBSITE_URL}) and this extension is no longer maintained. ` +
+            `Please switch to ${REBRAND_EXTENSION_NAME} to keep getting updates.`,
+        'Switch Now',
+        'Learn More',
+        'Remind Me Later'
+    );
+
+    if (choice === 'Switch Now') {
+        await migrateToRebrandedExtension();
+    } else if (choice === 'Learn More') {
+        void vscode.env.openExternal(vscode.Uri.parse(REBRAND_WEBSITE_URL));
+    }
+    // 'Remind Me Later' or dialog dismissed → already recorded; re-prompts after one day.
+}
+
+/**
+ * Install the rebranded "IronBee DevTools" extension and uninstall this one.
+ * Falls back to opening the extension page if the gallery install/uninstall is unavailable.
+ */
+async function migrateToRebrandedExtension(): Promise<void> {
+    try {
+        await vscode.commands.executeCommand('workbench.extensions.installExtension', REBRAND_EXTENSION_ID);
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('[Browser DevTools MCP] Failed to install rebranded extension:', msg);
+        void vscode.env.openExternal(vscode.Uri.parse(REBRAND_EXTENSION_PAGE_URL));
+        void vscode.window.showWarningMessage(
+            `Could not install ${REBRAND_EXTENSION_NAME} automatically. Opened its page so you can install it manually, then remove Browser DevTools MCP. ${msg}`
+        );
+        return;
+    }
+
+    let uninstalled = true;
+    try {
+        await vscode.commands.executeCommand('workbench.extensions.uninstallExtension', EXTENSION_ID);
+    } catch (err) {
+        uninstalled = false;
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('[Browser DevTools MCP] Failed to uninstall deprecated extension:', msg);
+    }
+
+    const message = uninstalled
+        ? `${REBRAND_EXTENSION_NAME} installed and Browser DevTools MCP removed. Reload the window to finish.`
+        : `${REBRAND_EXTENSION_NAME} installed. Please uninstall Browser DevTools MCP manually, then reload the window.`;
+    const reload = await vscode.window.showInformationMessage(message, 'Reload Window');
+    if (reload === 'Reload Window') {
+        void vscode.commands.executeCommand('workbench.action.reloadWindow');
     }
 }
 
@@ -937,8 +1010,9 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    void maybePromptExtensionUpdate(context);
-    void maybePromptGitHubStar(context);
+    // Deprecated: prompt users to migrate to the rebranded "IronBee DevTools" extension.
+    // This supersedes the update/star prompts since the extension is no longer maintained.
+    void maybePromptRebrandMigration(context);
 
     // Register Show Visualizer command — only works when showVisualizer is true
     context.subscriptions.push(
